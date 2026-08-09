@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+/* Misma familia de marca que apps/conteo (teal + cálido), pero calibrada
+ * para una herramienta de escritorio densa en datos: clara, tranquila,
+ * sin el gris azulado default de Tailwind. A propósito NO sigue
+ * prefers-color-scheme — es una decisión de marca, no un olvido: un
+ * dashboard denso en tablas necesita un modo dark hecho a conciencia
+ * (no automático) para no perder contraste en los datos, y esta fase no
+ * lo cubre. */
+@theme inline {
+  --font-sans: var(--font-lexend);
+  --font-mono: var(--font-plex-mono);
+
+  --color-ink: #211f1c;
+  --color-paper: #faf9f6;
+  --color-surface: #ffffff;
+  --color-line: #e8e3d9;
+  --color-muted: #79726a;
+
+  --color-brand: #146356;
+  --color-brand-bright: #1f9d82;
+  --color-brand-soft: #eaf3ef;
+
+  --color-warn: #b45309;
+  --color-warn-soft: #fdf1e2;
+  --color-danger: #b3261e;
+  --color-danger-soft: #fbeceb;
+  --color-ok: #146356;
+  --color-ok-soft: #eaf3ef;
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.125rem;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.font-mono,
+[class*="tabular-nums"] {
+  font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-brand;
+  }
+}

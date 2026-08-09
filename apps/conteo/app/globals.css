@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+/* Paleta cálida a propósito — nada de gris azulado default de Tailwind.
+ * Negro casi puro pero tibio (no gris-950 frío), un verde-teal profundo
+ * como marca, y colores de feedback vívidos porque en esta pantalla la
+ * legibilidad instantánea a un brazo de distancia importa más que la
+ * estética. */
+@theme inline {
+  --font-sans: var(--font-lexend);
+  --font-mono: var(--font-plex-mono);
+
+  --color-ink: #141312;
+  --color-ink-2: #1c1a18;
+  --color-ink-3: #2a2724;
+  --color-line: #38342f;
+
+  --color-paper: #faf9f6;
+  --color-muted: #a89e91;
+
+  --color-brand: #1f9d82;
+  --color-brand-dim: #146356;
+
+  --color-found: #2fbf71;
+  --color-found-bg: #123320;
+  --color-notfound: #ef4b4b;
+  --color-notfound-bg: #3a1414;
+  --color-duplicate: #f2a93c;
+  --color-duplicate-bg: #3a2a0c;
+
+  --radius-sm: 0.5rem;
+  --radius-md: 0.875rem;
+  --radius-lg: 1.25rem;
+}
+
+body {
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+/* Números tabulares en todo lo mono — cantidades y códigos de barra no
+ * deben "bailar" de ancho al cambiar de dígito. */
+.font-mono,
+[class*="tabular-nums"] {
+  font-variant-numeric: tabular-nums;
+}

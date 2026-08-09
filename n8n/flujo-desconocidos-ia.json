@@ -1,0 +1,142 @@
+{
+  "name": "Farmacia - Identificar desconocido con Gemini",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "desconocido-ia",
+        "responseMode": "onReceived",
+        "responseData": "{\"recibido\":true}",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook (dispara desde apps/conteo)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "notes": "Recibe { desconocido_id, codigo_norm, foto_url, callback_url, callback_secret } — ver apps/conteo/app/api/desconocidos/disparar-ia/route.ts. responseMode 'onReceived' devuelve 200 al toque y el resto del flujo sigue en segundo plano — así el trigger nunca queda esperando a Gemini."
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.body.foto_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "descargar-foto",
+      "name": "Descargar foto",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "notes": "foto_url es una signed URL de Supabase Storage, válida 30 minutos — si este nodo falla por URL vencida, revisar el TTL en disparar-ia/route.ts."
+    },
+    {
+      "parameters": {
+        "mode": "binaryToJson",
+        "sourceKey": "data",
+        "destinationKey": "fotoBase64"
+      },
+      "id": "foto-a-base64",
+      "name": "Convertir a base64",
+      "type": "n8n-nodes-base.moveBinaryData",
+      "typeVersion": 1,
+      "position": [440, 0],
+      "notes": "UNTESTED — nombre de nodo/parámetros puede variar según la versión de n8n instalada. Objetivo: terminar con un campo de texto base64 de la imagen, sin el prefijo data:image/...;base64,."
+    },
+    {
+      "parameters": {
+        "jsCode": "const trigger = $('Webhook (dispara desde apps/conteo)').first().json.body;\nconst fotoBase64 = $json.fotoBase64;\n\nconst prompt = `Analizás la fotografía de la caja de un medicamento.\nDevolvé ÚNICAMENTE un objeto JSON válido. Sin markdown, sin backticks,\nsin explicación, sin texto antes ni después.\n\nEstructura exacta:\n{\"reconocido\":true,\"nombre\":\"\",\"laboratorio\":\"\",\"concentracion\":\"\",\"contenido\":0,\"unidad\":\"\",\"confianza\":0.0}\n\nReglas:\n- nombre: nombre comercial tal como figura en la caja, sin el laboratorio.\n- laboratorio: fabricante impreso en la caja.\n- concentracion: ej \"400 mg\", \"500 mg/5 ml\". Vacío si no está visible.\n- contenido: solo el número. \"Caja x 20 comprimidos\" → 20. \"Frasco 120 ml\" → 120.\n- unidad: uno de comprimidos|capsulas|ml|g|unidades|sobres|ampollas.\n- confianza: 0.0 a 1.0 según qué tan legible está la caja.\n- NO inventes datos que no estén visibles. Campo ilegible → \"\" o 0, y bajá la confianza.\n- Si no podés identificar el medicamento, devolvé:\n  {\"reconocido\":false,\"nombre\":\"\",\"laboratorio\":\"\",\"concentracion\":\"\",\"contenido\":0,\"unidad\":\"\",\"confianza\":0.0}`;\n\nreturn {\n  json: {\n    desconocido_id: trigger.desconocido_id,\n    callback_url: trigger.callback_url,\n    callback_secret: trigger.callback_secret,\n    geminiBody: {\n      contents: [\n        {\n          parts: [\n            { text: prompt },\n            { inline_data: { mime_type: 'image/jpeg', data: fotoBase64 } }\n          ]\n        }\n      ],\n      generationConfig: {\n        response_mime_type: 'application/json'\n      }\n    }\n  }\n};"
+      },
+      "id": "armar-prompt",
+      "name": "Armar prompt Gemini (sección 5)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0],
+      "notes": "Prompt copiado tal cual de la sección 5 de spec-farmacias-completo.md — si el spec cambia el prompt, actualizar acá también, están desincronizados por diseño (uno es doc, el otro es el flujo real)."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={{ $credentials.geminiApiKey }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.geminiBody) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "llamar-gemini",
+      "name": "Gemini generateContent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "continueOnFail": true,
+      "notes": "UNTESTED contra una cuenta real de Gemini — verificar el nombre del modelo (gemini-2.0-flash puede haber cambiado) y cómo n8n resuelve la credencial ({{ $credentials... }} es una aproximación, en la práctica probablemente haga falta configurar un nodo de credencial 'HTTP Header Auth' o usar el nodo nativo de Google Gemini de n8n si está disponible en tu versión, que es más prolijo que HTTP Request crudo). retryOnFail/maxTries/waitBetweenTries implementan los '3 reintentos' del spec a nivel de nodo, sin loops manuales. continueOnFail:true es a propósito — si los 3 reintentos fallan, el flujo sigue igual hasta el callback con reconocido:false, en vez de cortarse."
+    },
+    {
+      "parameters": {
+        "jsCode": "const entrada = $input.first().json;\nconst desconocidoId = $('Armar prompt Gemini (sección 5)').first().json.desconocido_id;\nconst callbackUrl = $('Armar prompt Gemini (sección 5)').first().json.callback_url;\nconst callbackSecret = $('Armar prompt Gemini (sección 5)').first().json.callback_secret;\n\nfunction vacio() {\n  return { reconocido: false, nombre: '', laboratorio: '', concentracion: '', contenido: 0, unidad: '', confianza: 0.0 };\n}\n\nlet resultado;\ntry {\n  // Parseo tolerante: por las dudas Gemini mande el JSON envuelto en\n  // ```json ... ``` a pesar de response_mime_type, se lo saca antes de parsear.\n  const texto = entrada?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';\n  const limpio = texto.replace(/^```json\\s*/i, '').replace(/```\\s*$/i, '').trim();\n  resultado = JSON.parse(limpio);\n  if (typeof resultado.reconocido !== 'boolean') resultado = vacio();\n} catch (e) {\n  resultado = vacio();\n}\n\nreturn {\n  json: {\n    desconocido_id: desconocidoId,\n    callback_url: callbackUrl,\n    callback_secret: callbackSecret,\n    ...resultado\n  }\n};"
+      },
+      "id": "parsear-respuesta",
+      "name": "Parseo tolerante",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 0],
+      "notes": "Si Gemini falló las 3 veces (continueOnFail del nodo anterior), entrada acá va a venir vacía/con error — el try/catch cae en vacio() = reconocido:false, que es exactamente lo que el spec pide: 'si falla o Gemini no reconoce, el estado pasa a no_reconocido'."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.callback_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "X-Webhook-Secret", "value": "={{ $json.callback_secret }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ desconocido_id: $json.desconocido_id, reconocido: $json.reconocido, nombre: $json.nombre, laboratorio: $json.laboratorio, concentracion: $json.concentracion, contenido: $json.contenido, unidad: $json.unidad, confianza: $json.confianza }) }}",
+        "options": {}
+      },
+      "id": "callback",
+      "name": "Avisar a apps/conteo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 0],
+      "notes": "POST a apps/conteo/app/api/desconocidos/callback-ia/route.ts. callback_secret tiene que matchear empresas.config.n8n_webhook_secret o el callback lo rechaza con 401 — configurar el mismo valor de los dos lados."
+    }
+  ],
+  "connections": {
+    "Webhook (dispara desde apps/conteo)": {
+      "main": [[{ "node": "Descargar foto", "type": "main", "index": 0 }]]
+    },
+    "Descargar foto": {
+      "main": [[{ "node": "Convertir a base64", "type": "main", "index": 0 }]]
+    },
+    "Convertir a base64": {
+      "main": [[{ "node": "Armar prompt Gemini (sección 5)", "type": "main", "index": 0 }]]
+    },
+    "Armar prompt Gemini (sección 5)": {
+      "main": [[{ "node": "Gemini generateContent", "type": "main", "index": 0 }]]
+    },
+    "Gemini generateContent": {
+      "main": [[{ "node": "Parseo tolerante", "type": "main", "index": 0 }]]
+    },
+    "Parseo tolerante": {
+      "main": [[{ "node": "Avisar a apps/conteo", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
