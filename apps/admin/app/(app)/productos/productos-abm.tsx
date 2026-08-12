@@ -159,6 +159,12 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
     return () => clearTimeout(t);
   }, [term, pagina, supabase, empresaId]);
 
+  function irAPagina(valor: string) {
+    const totalPaginas = Math.max(1, Math.ceil(totalFilas / TAMANO_PAGINA));
+    const n = Math.min(totalPaginas, Math.max(1, Math.round(Number(valor)) || 1));
+    setPagina(n - 1);
+  }
+
   function abrirNuevo() {
     setError(null);
     setForm(FORM_VACIO);
@@ -327,10 +333,10 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
           </p>
         )}
 
-        <div className="mt-6 overflow-hidden rounded-lg border border-line">
-          <table className="w-full text-sm">
+        <div className="mt-6 overflow-x-auto rounded-lg border border-line">
+          <table className="w-full min-w-[1400px] text-sm">
             <thead>
-              <tr className="border-b border-line text-left text-muted">
+              <tr className="border-b border-line text-left text-muted whitespace-nowrap">
                 <th className="px-4 py-2.5 font-medium">Nombre</th>
                 <th className="px-4 py-2.5 font-medium">Código de barras</th>
                 <th className="px-4 py-2.5 font-medium">Laboratorio</th>
@@ -347,7 +353,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
             </thead>
             <tbody>
               {resultados.map((p) => (
-                <tr key={p.id} className="border-b border-line last:border-0 hover:bg-paper">
+                <tr key={p.id} className="border-b border-line last:border-0 whitespace-nowrap hover:bg-paper">
                   <td className="px-4 py-2.5 text-ink">{p.nombre}</td>
                   <td className="px-4 py-2.5 font-mono text-xs text-muted">
                     {codigoPrincipal(p.codigos_barra) ?? "—"}
@@ -419,8 +425,19 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
               >
                 Anterior
               </button>
-              <span className="text-muted">
-                Página {pagina + 1} de {Math.max(1, Math.ceil(totalFilas / TAMANO_PAGINA))}
+              <span className="flex items-center gap-1.5 text-muted">
+                Página
+                <input
+                  key={pagina}
+                  type="number"
+                  min={1}
+                  max={Math.max(1, Math.ceil(totalFilas / TAMANO_PAGINA))}
+                  defaultValue={pagina + 1}
+                  onKeyDown={(e) => e.key === "Enter" && irAPagina((e.target as HTMLInputElement).value)}
+                  onBlur={(e) => irAPagina(e.target.value)}
+                  className="input w-16 px-2 py-1 text-center"
+                />
+                de {Math.max(1, Math.ceil(totalFilas / TAMANO_PAGINA))}
               </span>
               <button
                 onClick={() => setPagina((p) => (p + 1) * TAMANO_PAGINA < totalFilas ? p + 1 : p)}
