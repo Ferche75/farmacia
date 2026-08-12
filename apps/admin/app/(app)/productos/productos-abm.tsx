@@ -18,6 +18,15 @@ interface ProductoFila {
   controlado: boolean;
   activo: boolean;
   laboratorios: { nombre: string } | null;
+  codigos_barra: { codigo_raw: string; es_principal: boolean }[];
+}
+
+// El principal es el que matchea en el conteo/buscar_producto — si por
+// algún motivo ninguno quedó marcado, se muestra el primero como fallback
+// en vez de dejar la columna vacía cuando en realidad sí hay un código.
+function codigoPrincipal(codigos: ProductoFila["codigos_barra"]): string | null {
+  if (codigos.length === 0) return null;
+  return (codigos.find((c) => c.es_principal) ?? codigos[0]).codigo_raw;
 }
 
 interface FormState {
@@ -86,7 +95,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       let query = supabase
         .from("productos")
         .select(
-          "id, nombre, laboratorio_id, principio_activo, concentracion, forma, contenido, unidad, categoria, requiere_receta, controlado, activo, laboratorios(nombre)"
+          "id, nombre, laboratorio_id, principio_activo, concentracion, forma, contenido, unidad, categoria, requiere_receta, controlado, activo, laboratorios(nombre), codigos_barra(codigo_raw, es_principal)"
         )
         .order("nombre")
         .limit(50);
@@ -270,6 +279,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
             <thead>
               <tr className="border-b border-line text-left text-muted">
                 <th className="px-4 py-2.5 font-medium">Nombre</th>
+                <th className="px-4 py-2.5 font-medium">Código de barras</th>
                 <th className="px-4 py-2.5 font-medium">Laboratorio</th>
                 <th className="px-4 py-2.5 font-medium">Forma</th>
                 <th className="px-4 py-2.5 font-medium">Concentración</th>
@@ -283,6 +293,12 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
               {resultados.map((p) => (
                 <tr key={p.id} className="border-b border-line last:border-0 hover:bg-paper">
                   <td className="px-4 py-2.5 text-ink">{p.nombre}</td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-muted">
+                    {codigoPrincipal(p.codigos_barra) ?? "—"}
+                    {p.codigos_barra.length > 1 && (
+                      <span className="ml-1 text-line">+{p.codigos_barra.length - 1}</span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 text-muted">{p.laboratorios?.nombre ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">{p.forma ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">{p.concentracion ?? "—"}</td>
@@ -300,7 +316,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
               ))}
               {resultados.length === 0 && !buscando && (
                 <tr>
-                  <td colSpan={8} className="py-16">
+                  <td colSpan={9} className="py-16">
                     <div className="flex flex-col items-center gap-3 text-center">
                       <IconCajaVacia className="h-10 w-10 text-line" />
                       <p className="font-medium text-ink">Sin resultados.</p>
