@@ -29,6 +29,17 @@ function codigoPrincipal(codigos: ProductoFila["codigos_barra"]): string | null 
   return (codigos.find((c) => c.es_principal) ?? codigos[0]).codigo_raw;
 }
 
+// Mismos umbrales de 90/180 días que ya usa resumen_conteo (Fase 6) y la
+// página /vencimientos.
+function VencimientoBadge({ fecha }: { fecha: string }) {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const dias = Math.round((new Date(fecha).getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
+  const texto = new Date(fecha).toLocaleDateString("es-BO");
+  const color = dias < 0 || dias <= 90 ? "text-danger" : dias <= 180 ? "text-warn" : "text-muted";
+  return <span className={color}>{texto}</span>;
+}
+
 interface FormState {
   id?: string;
   nombre: string;
@@ -68,10 +79,20 @@ const FORM_VACIO: FormState = {
   codigoProveedor: "",
 };
 
+interface LoteResumen {
+  vencimiento: string;
+  sucursalNombre: string;
+}
+
+const TAMANO_PAGINA = 50;
+
 export function ProductosAbm({ empresaId }: { empresaId: string }) {
   const supabase = useMemo(() => createBrowserClient(), []);
   const [term, setTerm] = useState("");
+  const [pagina, setPagina] = useState(0);
+  const [totalFilas, setTotalFilas] = useState(0);
   const [resultados, setResultados] = useState<ProductoFila[]>([]);
+  const [lotesPorProducto, setLotesPorProducto] = useState<Map<string, LoteResumen[]>>(new Map());
   const [buscando, setBuscando] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
   const [guardando, setGuardando] = useState(false);
@@ -95,19 +116,48 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       let query = supabase
         .from("productos")
         .select(
-          "id, nombre, laboratorio_id, principio_activo, concentracion, forma, contenido, unidad, categoria, requiere_receta, controlado, activo, laboratorios(nombre), codigos_barra(codigo_raw, es_principal)"
+          "id, nombre, laboratorio_id, principio_activo, concentracion, forma, contenido, unidad, categoria, requiere_receta, controlado, activo, laboratorios(nombre), codigos_barra(codigo_raw, es_principal)",
+          { count: "exact" }
         )
         .order("nombre")
-        .limit(50);
+        .range(pagina * TAMANO_PAGINA, pagina * TAMANO_PAGINA + TAMANO_PAGINA - 1);
       if (term.trim()) {
         query = query.ilike("nombre", `%${term.trim()}%`);
       }
-      const { data } = await query;
-      setResultados((data ?? []) as unknown as ProductoFila[]);
+      const { data, count } = await query;
+      const productos = (data ?? []) as unknown as ProductoFila[];
+      setResultados(productos);
+      setTotalFilas(count ?? 0);
+
+      // Vencimiento/sucursal: viven en `lotes` (por empresa+sucursal, se
+      // alimenta al cerrar un conteo — ver
+      // supabase/migrations/20260812000003_lotes_vencimiento.sql), no en
+      // `productos` (que es el catálogo global). Se consulta aparte,
+      // acotado a los productos visibles en esta página.
+      const idsVisibles = productos.map((p) => p.id);
+      const { data: lotesData } = idsVisibles.length
+        ? await supabase
+            .from("lotes")
+            .select("producto_id, vencimiento, sucursales(nombre)")
+            .eq("empresa_id", empresaId)
+            .in("producto_id", idsVisibles)
+            .gt("cantidad", 0)
+            .order("vencimiento", { ascending: true })
+        : { data: [] };
+
+      const porProducto = new Map<string, LoteResumen[]>();
+      for (const l of lotesData ?? []) {
+        const sucursalNombre = (l.sucursales as unknown as { nombre: string } | null)?.nombre ?? "—";
+        const arr = porProducto.get(l.producto_id) ?? [];
+        arr.push({ vencimiento: l.vencimiento, sucursalNombre });
+        porProducto.set(l.producto_id, arr);
+      }
+      setLotesPorProducto(porProducto);
+
       setBuscando(false);
     }, 300);
     return () => clearTimeout(t);
-  }, [term, supabase]);
+  }, [term, pagina, supabase, empresaId]);
 
   function abrirNuevo() {
     setError(null);
@@ -245,7 +295,10 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
             <input
               type="text"
               value={term}
-              onChange={(e) => setTerm(e.target.value)}
+              onChange={(e) => {
+                setTerm(e.target.value);
+                setPagina(0);
+              }}
               placeholder="Buscar por nombre…"
               className="input pl-9"
             />
@@ -282,9 +335,12 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                 <th className="px-4 py-2.5 font-medium">Código de barras</th>
                 <th className="px-4 py-2.5 font-medium">Laboratorio</th>
                 <th className="px-4 py-2.5 font-medium">Forma</th>
+                <th className="px-4 py-2.5 font-medium">Presentación</th>
                 <th className="px-4 py-2.5 font-medium">Concentración</th>
                 <th className="px-4 py-2.5 font-medium">Principio activo</th>
                 <th className="px-4 py-2.5 font-medium">Categoría</th>
+                <th className="px-4 py-2.5 font-medium">Sucursal</th>
+                <th className="px-4 py-2.5 font-medium">Vencimiento</th>
                 <th className="px-4 py-2.5 font-medium">Estado</th>
                 <th className="px-4 py-2.5"></th>
               </tr>
@@ -301,9 +357,28 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                   </td>
                   <td className="px-4 py-2.5 text-muted">{p.laboratorios?.nombre ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">{p.forma ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-muted">
+                    {p.contenido != null ? `${p.contenido} ${p.unidad ?? ""}`.trim() : "—"}
+                  </td>
                   <td className="px-4 py-2.5 text-muted">{p.concentracion ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">{p.principio_activo ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">{p.categoria ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-muted">
+                    {(() => {
+                      const lotes = lotesPorProducto.get(p.id);
+                      if (!lotes || lotes.length === 0) return "—";
+                      const sucursales = [...new Set(lotes.map((l) => l.sucursalNombre))];
+                      return sucursales.length > 1 ? `${sucursales[0]} +${sucursales.length - 1}` : sucursales[0];
+                    })()}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {(() => {
+                      const lotes = lotesPorProducto.get(p.id);
+                      if (!lotes || lotes.length === 0) return <span className="text-muted">—</span>;
+                      // Ordenados por vencimiento asc en la consulta: el primero es el más próximo.
+                      return <VencimientoBadge fecha={lotes[0].vencimiento} />;
+                    })()}
+                  </td>
                   <td className="px-4 py-2.5">
                     {p.activo ? <span className="text-ok">activo</span> : <span className="text-muted">inactivo</span>}
                   </td>
@@ -316,7 +391,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
               ))}
               {resultados.length === 0 && !buscando && (
                 <tr>
-                  <td colSpan={9} className="py-16">
+                  <td colSpan={12} className="py-16">
                     <div className="flex flex-col items-center gap-3 text-center">
                       <IconCajaVacia className="h-10 w-10 text-line" />
                       <p className="font-medium text-ink">Sin resultados.</p>
@@ -330,6 +405,33 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
             </tbody>
           </table>
         </div>
+
+        {totalFilas > TAMANO_PAGINA && (
+          <div className="mt-4 flex items-center justify-between text-sm">
+            <p className="text-muted">
+              {pagina * TAMANO_PAGINA + 1}–{Math.min((pagina + 1) * TAMANO_PAGINA, totalFilas)} de {totalFilas}
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setPagina((p) => Math.max(0, p - 1))}
+                disabled={pagina === 0}
+                className="rounded-md border border-line px-3 py-1.5 font-medium text-ink transition-colors hover:bg-paper disabled:opacity-40"
+              >
+                Anterior
+              </button>
+              <span className="text-muted">
+                Página {pagina + 1} de {Math.max(1, Math.ceil(totalFilas / TAMANO_PAGINA))}
+              </span>
+              <button
+                onClick={() => setPagina((p) => (p + 1) * TAMANO_PAGINA < totalFilas ? p + 1 : p)}
+                disabled={(pagina + 1) * TAMANO_PAGINA >= totalFilas}
+                className="rounded-md border border-line px-3 py-1.5 font-medium text-ink transition-colors hover:bg-paper disabled:opacity-40"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {form && (
@@ -391,7 +493,18 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                 <input
                   className="input"
                   value={form.forma}
-                  onChange={(e) => setForm({ ...form, forma: e.target.value })}
+                  onChange={(e) => {
+                    const forma = e.target.value;
+                    // Formas líquidas se miden en ml — se autocompleta la
+                    // unidad solo si todavía está vacía, para no pisar lo
+                    // que el usuario ya haya tipeado a mano.
+                    const esLiquido = /jarabe|suspensi|soluci|gotas|inyectable|ampolla/i.test(forma);
+                    setForm({
+                      ...form,
+                      forma,
+                      unidad: esLiquido && !form.unidad ? "ml" : form.unidad,
+                    });
+                  }}
                 />
               </Campo>
               <Campo label="Unidad">
