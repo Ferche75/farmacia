@@ -150,6 +150,7 @@ export interface Database {
           controlado: boolean;
           origen: "manual" | "ia" | "importado";
           activo: boolean;
+          categoria: string | null;
           creado_por: string | null;
           actualizado_por: string | null;
           created_at: string;
@@ -168,6 +169,7 @@ export interface Database {
           controlado?: boolean;
           origen?: "manual" | "ia" | "importado";
           activo?: boolean;
+          categoria?: string | null;
           creado_por?: string | null;
           actualizado_por?: string | null;
           created_at?: string;
@@ -221,6 +223,7 @@ export interface Database {
           costo: number | null;
           precio: number | null;
           stock_minimo: number | null;
+          codigo_proveedor: string | null;
           activo: boolean;
         };
         Insert: {
@@ -229,6 +232,7 @@ export interface Database {
           costo?: number | null;
           precio?: number | null;
           stock_minimo?: number | null;
+          codigo_proveedor?: string | null;
           activo?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["productos_empresa"]["Insert"]>;

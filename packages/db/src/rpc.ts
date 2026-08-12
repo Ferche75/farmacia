@@ -205,6 +205,13 @@ export interface FilaImportacion {
   contenido?: string | number;
   unidad?: string;
   forma?: string;
+  principioActivo?: string;
+  categoria?: string;
+  codigoProveedor?: string;
+  /** Laboratorio de ESTA fila — manda sobre el laboratorio elegido para
+   * todo el archivo. Para archivos que mezclan varios proveedores (ver
+   * 20260812000001_importacion_multilab_y_sin_codigo.sql). */
+  laboratorio?: string;
   costo?: string | number;
   precio?: string | number;
 }
@@ -212,6 +219,9 @@ export interface FilaImportacion {
 export interface FilaClasificada {
   fila_index: number;
   codigo_barra: string;
+  /** Solo presente cuando la fila no tenía código de barra y se
+   * clasificó por nombre exacto — ver migración de arriba. */
+  nombre?: string | null;
   accion: "crear" | "actualizar" | "rechazar";
   motivo: string | null;
 }
@@ -245,6 +255,10 @@ function filaImportacionAPayload(f: FilaImportacion): Json {
     contenido: f.contenido ?? null,
     unidad: f.unidad ?? null,
     forma: f.forma ?? null,
+    principio_activo: f.principioActivo ?? null,
+    categoria: f.categoria ?? null,
+    codigo_proveedor: f.codigoProveedor ?? null,
+    laboratorio: f.laboratorio ?? null,
     costo: f.costo ?? null,
     precio: f.precio ?? null,
   };

@@ -13,6 +13,7 @@ interface ProductoFila {
   forma: string | null;
   contenido: number | null;
   unidad: string | null;
+  categoria: string | null;
   requiere_receta: boolean;
   controlado: boolean;
   activo: boolean;
@@ -28,6 +29,7 @@ interface FormState {
   forma: string;
   contenido: string;
   unidad: string;
+  categoria: string;
   requiereReceta: boolean;
   controlado: boolean;
   activo: boolean;
@@ -35,6 +37,7 @@ interface FormState {
   costo: string;
   precio: string;
   stockMinimo: string;
+  codigoProveedor: string;
 }
 
 const FORM_VACIO: FormState = {
@@ -45,6 +48,7 @@ const FORM_VACIO: FormState = {
   forma: "",
   contenido: "",
   unidad: "",
+  categoria: "",
   requiereReceta: false,
   controlado: false,
   activo: true,
@@ -52,6 +56,7 @@ const FORM_VACIO: FormState = {
   costo: "",
   precio: "",
   stockMinimo: "",
+  codigoProveedor: "",
 };
 
 export function ProductosAbm({ empresaId }: { empresaId: string }) {
@@ -81,7 +86,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       let query = supabase
         .from("productos")
         .select(
-          "id, nombre, laboratorio_id, principio_activo, concentracion, forma, contenido, unidad, requiere_receta, controlado, activo, laboratorios(nombre)"
+          "id, nombre, laboratorio_id, principio_activo, concentracion, forma, contenido, unidad, categoria, requiere_receta, controlado, activo, laboratorios(nombre)"
         )
         .order("nombre")
         .limit(50);
@@ -104,7 +109,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
     setError(null);
     const { data: pe } = await supabase
       .from("productos_empresa")
-      .select("costo, precio, stock_minimo")
+      .select("costo, precio, stock_minimo, codigo_proveedor")
       .eq("empresa_id", empresaId)
       .eq("producto_id", p.id)
       .maybeSingle();
@@ -118,6 +123,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       forma: p.forma ?? "",
       contenido: p.contenido != null ? String(p.contenido) : "",
       unidad: p.unidad ?? "",
+      categoria: p.categoria ?? "",
       requiereReceta: p.requiere_receta,
       controlado: p.controlado,
       activo: p.activo,
@@ -125,6 +131,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       costo: pe?.costo != null ? String(pe.costo) : "",
       precio: pe?.precio != null ? String(pe.precio) : "",
       stockMinimo: pe?.stock_minimo != null ? String(pe.stock_minimo) : "",
+      codigoProveedor: pe?.codigo_proveedor ?? "",
     });
   }
 
@@ -152,6 +159,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
         forma: form.forma || null,
         contenido: form.contenido ? Number(form.contenido) : null,
         unidad: form.unidad || null,
+        categoria: form.categoria || null,
         requiere_receta: form.requiereReceta,
         controlado: form.controlado,
         activo: form.activo,
@@ -189,7 +197,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
         if (cbErr) throw cbErr;
       }
 
-      if (form.costo || form.precio || form.stockMinimo) {
+      if (form.costo || form.precio || form.stockMinimo || form.codigoProveedor) {
         const { error: peErr } = await supabase.from("productos_empresa").upsert(
           {
             empresa_id: empresaId,
@@ -197,6 +205,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
             costo: form.costo ? Number(form.costo) : null,
             precio: form.precio ? Number(form.precio) : null,
             stock_minimo: form.stockMinimo ? Number(form.stockMinimo) : null,
+            codigo_proveedor: form.codigoProveedor || null,
           },
           { onConflict: "empresa_id,producto_id" }
         );
@@ -264,6 +273,8 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                 <th className="px-4 py-2.5 font-medium">Laboratorio</th>
                 <th className="px-4 py-2.5 font-medium">Forma</th>
                 <th className="px-4 py-2.5 font-medium">Concentración</th>
+                <th className="px-4 py-2.5 font-medium">Principio activo</th>
+                <th className="px-4 py-2.5 font-medium">Categoría</th>
                 <th className="px-4 py-2.5 font-medium">Estado</th>
                 <th className="px-4 py-2.5"></th>
               </tr>
@@ -275,6 +286,8 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                   <td className="px-4 py-2.5 text-muted">{p.laboratorios?.nombre ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">{p.forma ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">{p.concentracion ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-muted">{p.principio_activo ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-muted">{p.categoria ?? "—"}</td>
                   <td className="px-4 py-2.5">
                     {p.activo ? <span className="text-ok">activo</span> : <span className="text-muted">inactivo</span>}
                   </td>
@@ -287,7 +300,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
               ))}
               {resultados.length === 0 && !buscando && (
                 <tr>
-                  <td colSpan={6} className="py-16">
+                  <td colSpan={8} className="py-16">
                     <div className="flex flex-col items-center gap-3 text-center">
                       <IconCajaVacia className="h-10 w-10 text-line" />
                       <p className="font-medium text-ink">Sin resultados.</p>
@@ -372,6 +385,13 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                   onChange={(e) => setForm({ ...form, unidad: e.target.value })}
                 />
               </Campo>
+              <Campo label="Categoría / línea">
+                <input
+                  className="input"
+                  value={form.categoria}
+                  onChange={(e) => setForm({ ...form, categoria: e.target.value })}
+                />
+              </Campo>
             </div>
 
             <Campo label="Contenido">
@@ -443,6 +463,13 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                 />
               </Campo>
             </div>
+            <Campo label="Código de proveedor">
+              <input
+                className="input"
+                value={form.codigoProveedor}
+                onChange={(e) => setForm({ ...form, codigoProveedor: e.target.value })}
+              />
+            </Campo>
           </div>
 
           <div className="mt-6 flex items-center gap-4">

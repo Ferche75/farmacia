@@ -13,6 +13,7 @@ interface ProductoFila {
   forma: string | null;
   contenido: number | null;
   unidad: string | null;
+  categoria: string | null;
   requiere_receta: boolean;
   controlado: boolean;
   origen: string;
@@ -33,6 +34,7 @@ interface PrecioFila {
   costo: number | null;
   precio: number | null;
   stock_minimo: number | null;
+  codigo_proveedor: string | null;
 }
 
 // PostgREST devuelve como mucho 1000 filas por consulta (límite del lado
@@ -45,7 +47,7 @@ export async function exportarCatalogoCompleto(supabase: Supabase, empresaId: st
     const { data, error } = await supabase
       .from("productos")
       .select(
-        "id, nombre, principio_activo, concentracion, forma, contenido, unidad, requiere_receta, controlado, origen, activo, laboratorios(nombre)"
+        "id, nombre, principio_activo, concentracion, forma, contenido, unidad, categoria, requiere_receta, controlado, origen, activo, laboratorios(nombre)"
       )
       .order("nombre")
       .range(desde, desde + TAMANO_PAGINA - 1);
@@ -70,7 +72,7 @@ export async function exportarCatalogoCompleto(supabase: Supabase, empresaId: st
   for (let desde = 0; ; desde += TAMANO_PAGINA) {
     const { data, error } = await supabase
       .from("productos_empresa")
-      .select("producto_id, costo, precio, stock_minimo")
+      .select("producto_id, costo, precio, stock_minimo, codigo_proveedor")
       .eq("empresa_id", empresaId)
       .range(desde, desde + TAMANO_PAGINA - 1);
     if (error) throw new Error(error.message);
@@ -100,6 +102,7 @@ export async function exportarCatalogoCompleto(supabase: Supabase, empresaId: st
         Forma: p.forma ?? "",
         Contenido: p.contenido ?? "",
         Unidad: p.unidad ?? "",
+        Categoría: p.categoria ?? "",
         "Requiere receta": p.requiere_receta ? "sí" : "no",
         Controlado: p.controlado ? "sí" : "no",
         Origen: p.origen,
@@ -108,6 +111,7 @@ export async function exportarCatalogoCompleto(supabase: Supabase, empresaId: st
         "Costo (Bs)": pe?.costo ?? "",
         "Precio (Bs)": pe?.precio ?? "",
         "Stock mínimo": pe?.stock_minimo ?? "",
+        "Código de proveedor": pe?.codigo_proveedor ?? "",
       };
     })
   );

@@ -57,20 +57,65 @@ export async function parseArchivo(file: File): Promise<ArchivoParseado> {
   throw new Error("Formato no soportado. Subí un archivo .csv o .xlsx.");
 }
 
+/** Varios archivos reales traen "cantidad" y "unidad" combinados en una
+ * sola columna de texto libre (ej. "100 COMP", "1 TUBO X 10 G") en vez de
+ * separados. Extrae el número inicial como contenido y el resto como
+ * unidad. Si no encuentra un número al principio, deja todo en unidad. */
+function parseCantidadUnidad(valor: string): { numero: string; resto: string } {
+  const match = valor.trim().match(/^([\d.,]+)\s*(.*)$/);
+  if (!match) return { numero: "", resto: valor.trim() };
+  return { numero: match[1].replace(",", "."), resto: match[2].trim() };
+}
+
+/** margenPorcentaje: si una fila trae costo pero no precio, calcula
+ * precio = costo * (1 + margen/100) — para archivos que solo traen costo
+ * (listas de proveedor sin precio de venta definido). Opcional; sin
+ * margen, una fila sin precio mapeado simplemente queda sin precio. */
 export function aplicarMapeo(
   filas: Record<string, string>[],
-  mapeo: MapeoColumnas
+  mapeo: MapeoColumnas,
+  margenPorcentaje?: number
 ): FilaImportacion[] {
-  return filas.map((fila) => ({
-    codigoBarra: (mapeo.codigoBarra ? fila[mapeo.codigoBarra] : "") ?? "",
-    nombre: mapeo.nombre ? fila[mapeo.nombre] : undefined,
-    concentracion: mapeo.concentracion ? fila[mapeo.concentracion] : undefined,
-    contenido: mapeo.contenido ? fila[mapeo.contenido] : undefined,
-    unidad: mapeo.unidad ? fila[mapeo.unidad] : undefined,
-    forma: mapeo.forma ? fila[mapeo.forma] : undefined,
-    costo: mapeo.costo ? fila[mapeo.costo] : undefined,
-    precio: mapeo.precio ? fila[mapeo.precio] : undefined,
-  }));
+  // "Contenido" y "Unidad" mapeados a la MISMA columna del archivo es la
+  // señal de que esa columna trae ambos combinados en texto libre — se
+  // parsea una sola vez por fila en vez de leerla dos veces tal cual.
+  const cantidadCombinada = !!mapeo.contenido && mapeo.contenido === mapeo.unidad;
+
+  return filas.map((fila) => {
+    let contenido = mapeo.contenido ? fila[mapeo.contenido] : undefined;
+    let unidad = mapeo.unidad ? fila[mapeo.unidad] : undefined;
+
+    if (cantidadCombinada && contenido) {
+      const { numero, resto } = parseCantidadUnidad(contenido);
+      contenido = numero;
+      unidad = resto;
+    }
+
+    const costo = mapeo.costo ? fila[mapeo.costo] : undefined;
+    let precio = mapeo.precio ? fila[mapeo.precio] : undefined;
+
+    if (!precio && costo && margenPorcentaje) {
+      const costoNum = Number(String(costo).replace(",", "."));
+      if (!Number.isNaN(costoNum)) {
+        precio = (costoNum * (1 + margenPorcentaje / 100)).toFixed(2);
+      }
+    }
+
+    return {
+      codigoBarra: (mapeo.codigoBarra ? fila[mapeo.codigoBarra] : "") ?? "",
+      nombre: mapeo.nombre ? fila[mapeo.nombre] : undefined,
+      concentracion: mapeo.concentracion ? fila[mapeo.concentracion] : undefined,
+      contenido,
+      unidad,
+      forma: mapeo.forma ? fila[mapeo.forma] : undefined,
+      principioActivo: mapeo.principioActivo ? fila[mapeo.principioActivo] : undefined,
+      categoria: mapeo.categoria ? fila[mapeo.categoria] : undefined,
+      codigoProveedor: mapeo.codigoProveedor ? fila[mapeo.codigoProveedor] : undefined,
+      laboratorio: mapeo.laboratorio ? fila[mapeo.laboratorio] : undefined,
+      costo,
+      precio,
+    };
+  });
 }
 
 export function trocear<T>(items: T[], tamano: number): T[][] {

@@ -42,6 +42,7 @@ export function Importador({ empresaId }: { empresaId: string }) {
 
   const [paso, setPaso] = useState<Paso>("laboratorio");
   const [laboratorio, setLaboratorio] = useState("");
+  const [margen, setMargen] = useState("");
   const [archivo, setArchivo] = useState<ArchivoParseado | null>(null);
   const [nombreArchivo, setNombreArchivo] = useState("");
   const [mapeo, setMapeo] = useState<MapeoColumnas>(MAPEO_VACIO);
@@ -118,7 +119,7 @@ export function Importador({ empresaId }: { empresaId: string }) {
     setCargando(true);
     setError(null);
     try {
-      const filas = aplicarMapeo(archivo.filas, mapeo);
+      const filas = aplicarMapeo(archivo.filas, mapeo, margen ? Number(margen) : undefined);
       const resultado = await previsualizarImportacion(supabase, laboratorio.trim(), filas);
       setPreview(resultado);
       setPaso("preview");
@@ -134,7 +135,7 @@ export function Importador({ empresaId }: { empresaId: string }) {
     setPaso("confirmando");
     setError(null);
     try {
-      const filas = aplicarMapeo(archivo.filas, mapeo);
+      const filas = aplicarMapeo(archivo.filas, mapeo, margen ? Number(margen) : undefined);
       const importacionId = await iniciarImportacion(supabase, nombreArchivo, mapeo as unknown as Json);
       const lotes = trocear(filas, TAMANO_LOTE_IMPORTACION);
 
@@ -159,6 +160,7 @@ export function Importador({ empresaId }: { empresaId: string }) {
   function empezarDeNuevo() {
     setPaso("laboratorio");
     setLaboratorio("");
+    setMargen("");
     setArchivo(null);
     setNombreArchivo("");
     setMapeo(MAPEO_VACIO);
@@ -209,7 +211,24 @@ export function Importador({ empresaId }: { empresaId: string }) {
               className="input"
             />
             <p className="mt-1.5 text-xs text-muted">
-              Un archivo es siempre de un solo laboratorio. Los mapeos guardados se buscan por este nombre.
+              Se usa para todo el archivo, salvo que mapees una columna &quot;Laboratorio&quot; en el paso
+              siguiente (para archivos que mezclan varios proveedores). Los mapeos guardados se buscan por este
+              nombre.
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-ink">Margen sobre costo (%) — opcional</label>
+            <input
+              type="number"
+              value={margen}
+              onChange={(e) => setMargen(e.target.value)}
+              placeholder="Ej: 30"
+              className="input"
+            />
+            <p className="mt-1.5 text-xs text-muted">
+              Si una fila trae costo pero no precio, calcula el precio de venta con este margen. Dejalo vacío si el
+              archivo ya trae precio o si preferís cargarlo a mano después.
             </p>
           </div>
 
@@ -346,7 +365,9 @@ export function Importador({ empresaId }: { empresaId: string }) {
                 {preview.filas.slice(0, 20).map((f) => (
                   <tr key={f.fila_index} className="border-t border-line">
                     <td className="px-3 py-1.5 text-muted">{f.fila_index + 1}</td>
-                    <td className="px-3 py-1.5 font-mono text-ink">{f.codigo_barra || "—"}</td>
+                    <td className="px-3 py-1.5 font-mono text-ink">
+                      {f.codigo_barra || (f.nombre ? `"${f.nombre}" (por nombre)` : "—")}
+                    </td>
                     <td className="px-3 py-1.5">
                       <span
                         className={
