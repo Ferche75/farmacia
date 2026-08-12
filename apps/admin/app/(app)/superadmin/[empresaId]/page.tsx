@@ -30,9 +30,10 @@ export default async function SuperadminEmpresaPage({
   if (errorEmpresa) throw new Error(`No se pudo cargar la empresa: ${errorEmpresa.message}`);
   if (!empresa) notFound();
 
-  const [{ data: sucursales }, { data: perfiles }] = await Promise.all([
+  const [{ data: sucursales }, { data: perfiles }, { data: bodegas }] = await Promise.all([
     supabase.from("sucursales").select("id, nombre, direccion, activo").eq("empresa_id", empresaId).order("nombre"),
     supabase.from("perfiles").select("id, nombre, rol, activo").eq("empresa_id", empresaId).order("nombre"),
+    supabase.from("bodegas").select("id, sucursal_id, nombre, activo").eq("empresa_id", empresaId).order("nombre"),
   ]);
 
   const perfilIds = (perfiles ?? []).map((p) => p.id);
@@ -64,6 +65,7 @@ export default async function SuperadminEmpresaPage({
     <EmpresaDetalle
       empresa={empresa}
       sucursales={sucursales ?? []}
+      bodegas={bodegas ?? []}
       usuarios={(perfiles ?? []).map((p) => ({
         ...p,
         email: emailPorId.get(p.id) ?? "—",

@@ -34,6 +34,7 @@ const ITEMS: {
   { label: "Productos", href: "/productos", roles: ["admin", "gerente", "superadmin"] },
   { label: "Bandeja de revisión", href: "/desconocidos", roles: ["admin", "gerente", "superadmin"], icon: IconBandeja },
   { label: "Conteos", href: "/conteos", roles: ["admin", "gerente", "superadmin"] },
+  { label: "Vencimientos", href: "/vencimientos", roles: ["admin", "gerente", "superadmin"] },
   { label: "Superadmin", href: "/superadmin", roles: ["superadmin"] },
 ];
 

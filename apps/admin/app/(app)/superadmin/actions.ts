@@ -127,6 +127,42 @@ export async function actualizarSucursal(
   return { success: true };
 }
 
+export async function crearBodega(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  await requireSuperadmin();
+
+  const empresaId = String(formData.get("empresaId") ?? "");
+  const sucursalId = String(formData.get("sucursalId") ?? "");
+  const nombre = String(formData.get("nombre") ?? "").trim();
+
+  if (!empresaId || !sucursalId || !nombre) return { error: "Elegí la sucursal y el nombre de la bodega." };
+
+  const supabase = await createServerClient();
+  const { error } = await supabase.from("bodegas").insert({
+    empresa_id: empresaId,
+    sucursal_id: sucursalId,
+    nombre,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath(`/superadmin/${empresaId}`);
+  return { success: true };
+}
+
+export async function actualizarBodega(
+  empresaId: string,
+  bodegaId: string,
+  cambios: { nombre?: string; activo?: boolean }
+): Promise<ActionState> {
+  await requireSuperadmin();
+
+  const supabase = await createServerClient();
+  const { error } = await supabase.from("bodegas").update(cambios).eq("id", bodegaId);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/superadmin/${empresaId}`);
+  return { success: true };
+}
+
 export async function crearUsuario(_prev: ActionState, formData: FormData): Promise<ActionState> {
   await requireSuperadmin();
 

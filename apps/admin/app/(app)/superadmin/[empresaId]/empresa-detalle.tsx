@@ -9,6 +9,8 @@ import {
   actualizarConfigN8n,
   crearSucursal,
   actualizarSucursal,
+  crearBodega,
+  actualizarBodega,
   crearUsuario,
   actualizarUsuario,
 } from "../actions";
@@ -35,6 +37,13 @@ interface Sucursal {
   activo: boolean;
 }
 
+interface Bodega {
+  id: string;
+  sucursal_id: string;
+  nombre: string;
+  activo: boolean;
+}
+
 interface Usuario {
   id: string;
   nombre: string;
@@ -49,10 +58,12 @@ const ROLES: Rol[] = ["operario", "admin", "gerente", "superadmin"];
 export function EmpresaDetalle({
   empresa,
   sucursales,
+  bodegas,
   usuarios,
 }: {
   empresa: Empresa;
   sucursales: Sucursal[];
+  bodegas: Bodega[];
   usuarios: Usuario[];
 }) {
   return (
@@ -67,6 +78,7 @@ export function EmpresaDetalle({
       <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
         <SeccionSucursales empresaId={empresa.id} sucursales={sucursales} />
         <SeccionUsuarios empresaId={empresa.id} usuarios={usuarios} sucursales={sucursales} />
+        <SeccionBodegas empresaId={empresa.id} sucursales={sucursales} bodegas={bodegas} />
       </div>
     </div>
   );
@@ -392,6 +404,133 @@ function SeccionSucursales({ empresaId, sucursales }: { empresaId: string; sucur
               <button
                 type="submit"
                 disabled={pending}
+                className="rounded-md bg-brand px-3 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {pending ? "Creando…" : "Crear"}
+              </button>
+              <button type="button" onClick={() => setAbierto(false)} className="text-sm text-muted hover:text-ink">
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SeccionBodegas({
+  empresaId,
+  sucursales,
+  bodegas,
+}: {
+  empresaId: string;
+  sucursales: Sucursal[];
+  bodegas: Bodega[];
+}) {
+  const router = useRouter();
+  const [abierto, setAbierto] = useState(false);
+  const [state, action, pending] = useActionState(crearBodega, undefined);
+  const [sucursalElegida, setSucursalElegida] = useState(sucursales[0]?.id ?? "");
+
+  // Ver el comentario en SeccionSucursales: mismo motivo para separar el
+  // cierre del modal (durante el render) de router.refresh() (en un efecto).
+  const [estadoVisto, setEstadoVisto] = useState(state);
+  if (state !== estadoVisto) {
+    setEstadoVisto(state);
+    if (state?.success) setAbierto(false);
+  }
+  useEffect(() => {
+    if (state?.success) router.refresh();
+  }, [state, router]);
+
+  async function toggleActivo(b: Bodega) {
+    await actualizarBodega(empresaId, b.id, { activo: !b.activo });
+    router.refresh();
+  }
+
+  const nombreSucursal = (id: string) => sucursales.find((s) => s.id === id)?.nombre ?? "—";
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-ink">Bodegas</h2>
+        <button
+          onClick={() => {
+            setSucursalElegida(sucursales[0]?.id ?? "");
+            setAbierto(true);
+          }}
+          className="text-sm font-medium text-brand hover:underline"
+        >
+          + Nueva
+        </button>
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-line bg-surface">
+        <table className="w-full text-sm">
+          <tbody>
+            {bodegas.map((b) => (
+              <tr key={b.id} className="border-b border-line last:border-0">
+                <td className="px-4 py-2.5 text-ink">{b.nombre}</td>
+                <td className="px-4 py-2.5 text-muted">{nombreSucursal(b.sucursal_id)}</td>
+                <td className="px-4 py-2.5">
+                  {b.activo ? <span className="text-ok">activa</span> : <span className="text-muted">inactiva</span>}
+                </td>
+                <td className="px-4 py-2.5 text-right">
+                  <button onClick={() => toggleActivo(b)} className="font-medium text-brand hover:underline">
+                    {b.activo ? "Desactivar" : "Activar"}
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {bodegas.length === 0 && (
+              <tr>
+                <td className="px-4 py-6 text-center text-muted">Todavía no hay bodegas.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {abierto && (
+        <div className="fixed inset-0 flex items-center justify-center bg-ink/40 p-6">
+          <form action={action} className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-xl">
+            <input type="hidden" name="empresaId" value={empresaId} />
+            <h2 className="mb-4 text-lg font-semibold text-ink">Nueva bodega</h2>
+
+            {state?.error && (
+              <p className="mb-4 rounded-md border border-danger/20 bg-danger-soft px-3 py-2 text-sm text-danger">
+                {state.error}
+              </p>
+            )}
+
+            {sucursales.length === 0 ? (
+              <p className="mb-4 text-sm text-muted">Creá una sucursal primero.</p>
+            ) : (
+              <>
+                <label className="mb-1.5 block text-sm font-medium text-ink">Sucursal *</label>
+                <select
+                  name="sucursalId"
+                  value={sucursalElegida}
+                  onChange={(e) => setSucursalElegida(e.target.value)}
+                  className="input mb-3"
+                >
+                  {sucursales.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nombre}
+                    </option>
+                  ))}
+                </select>
+
+                <label className="mb-1.5 block text-sm font-medium text-ink">Nombre *</label>
+                <input name="nombre" required className="input mb-5" autoFocus />
+              </>
+            )}
+
+            <div className="flex gap-3">
+              <button
+                type="submit"
+                disabled={pending || sucursales.length === 0}
                 className="rounded-md bg-brand px-3 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {pending ? "Creando…" : "Crear"}

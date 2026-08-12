@@ -391,6 +391,87 @@ export interface Database {
           },
         ];
       };
+      bodegas: {
+        Row: {
+          id: string;
+          empresa_id: string;
+          sucursal_id: string;
+          nombre: string;
+          activo: boolean;
+        };
+        Insert: {
+          id?: string;
+          empresa_id: string;
+          sucursal_id: string;
+          nombre: string;
+          activo?: boolean;
+        };
+        Update: Partial<Database["public"]["Tables"]["bodegas"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "bodegas_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "bodegas_sucursal_id_fkey";
+            columns: ["sucursal_id"];
+            isOneToOne: false;
+            referencedRelation: "sucursales";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      lotes: {
+        Row: {
+          id: string;
+          empresa_id: string;
+          sucursal_id: string;
+          producto_id: string;
+          lote: string | null;
+          vencimiento: string;
+          cantidad: number;
+          actualizado_en_conteo_id: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          empresa_id: string;
+          sucursal_id: string;
+          producto_id: string;
+          lote?: string | null;
+          vencimiento: string;
+          cantidad?: number;
+          actualizado_en_conteo_id?: string | null;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["lotes"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "lotes_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lotes_sucursal_id_fkey";
+            columns: ["sucursal_id"];
+            isOneToOne: false;
+            referencedRelation: "sucursales";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lotes_producto_id_fkey";
+            columns: ["producto_id"];
+            isOneToOne: false;
+            referencedRelation: "productos";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       mapeos_columnas: {
         Row: {
           id: string;
