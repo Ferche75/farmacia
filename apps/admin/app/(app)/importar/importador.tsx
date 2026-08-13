@@ -149,24 +149,8 @@ export function Importador({
 
   async function irAPreview() {
     if (!archivo) return;
-    setError(null);
-
-    // El motor de importación SIEMPRE necesita un laboratorio por fila
-    // (Fase 2) — el campo de arriba es opcional solo cuando el archivo
-    // ya lo trae mapeado con datos reales. Sin ninguno de los dos,
-    // confirmar_importacion_lote rechaza TODAS las filas en silencio
-    // (motivo "laboratorio_no_definido") — mejor avisar acá antes de
-    // gastar el viaje al servidor.
-    const tieneLaboratorioPorFila =
-      !!mapeo.laboratorio && archivo.filas.some((f) => (f[mapeo.laboratorio] ?? "").trim() !== "");
-    if (!laboratorio.trim() && !tieneLaboratorioPorFila) {
-      setError(
-        'Ninguna fila tiene laboratorio (ni el archivo ni el campo "Laboratorio" de arriba) — completalo antes de continuar, si no se van a rechazar todas las filas.'
-      );
-      return;
-    }
-
     setCargando(true);
+    setError(null);
     try {
       const filas = aplicarMapeo(archivo.filas, mapeo, margen ? Number(margen) : undefined);
       const resultado = await previsualizarImportacion(supabase, laboratorio.trim() || null, filas);
@@ -277,7 +261,7 @@ export function Importador({
           </div>
 
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink">Laboratorio</label>
+            <label className="mb-1.5 block text-sm font-medium text-ink">Laboratorio — opcional</label>
             <input
               type="text"
               value={laboratorio}
@@ -286,10 +270,10 @@ export function Importador({
               className="input"
             />
             <p className="mt-1.5 text-xs text-muted">
-              Todo producto necesita un laboratorio, sí o sí. Completá esto salvo que el archivo YA traiga una
-              columna &quot;Laboratorio&quot; con datos reales por fila (mapeala en el paso siguiente en vez de
-              completar esto) — si ninguna de las dos cosas pasa, se rechaza todo el archivo. Los mapeos
-              guardados se buscan por este nombre.
+              Se usa para todo el archivo, salvo que mapees una columna &quot;Laboratorio&quot; en el paso
+              siguiente (para archivos que mezclan varios proveedores). Si no completás nada acá ni en el
+              archivo, los productos se crean/actualizan igual, sin laboratorio asignado. Los mapeos guardados
+              se buscan por este nombre.
             </p>
           </div>
 
