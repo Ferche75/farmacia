@@ -261,6 +261,42 @@ export interface Database {
           },
         ];
       };
+      productos_sucursales: {
+        Row: {
+          empresa_id: string;
+          producto_id: string;
+          sucursal_id: string;
+        };
+        Insert: {
+          empresa_id: string;
+          producto_id: string;
+          sucursal_id: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["productos_sucursales"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "productos_sucursales_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "productos_sucursales_producto_id_fkey";
+            columns: ["producto_id"];
+            isOneToOne: false;
+            referencedRelation: "productos";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "productos_sucursales_sucursal_id_fkey";
+            columns: ["sucursal_id"];
+            isOneToOne: false;
+            referencedRelation: "sucursales";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       conteos: {
         Row: {
           id: string;

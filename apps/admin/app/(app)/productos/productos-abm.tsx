@@ -77,6 +77,7 @@ interface FormState {
   distribuidor: string;
   loteCatalogo: string;
   loteCatalogo2: string;
+  sucursalesDisponibles: string[]; // ids de sucursal — solo informativo, ver productos_sucursales
 }
 
 const FORM_VACIO: FormState = {
@@ -100,11 +101,17 @@ const FORM_VACIO: FormState = {
   distribuidor: "",
   loteCatalogo: "",
   loteCatalogo2: "",
+  sucursalesDisponibles: [],
 };
 
 interface LoteResumen {
   vencimiento: string;
   sucursalNombre: string;
+}
+
+interface SucursalOpcion {
+  id: string;
+  nombre: string;
 }
 
 const TAMANO_PAGINA = 50;
@@ -122,11 +129,23 @@ export function ProductosAbm({
   const [totalFilas, setTotalFilas] = useState(0);
   const [resultados, setResultados] = useState<ProductoFila[]>([]);
   const [lotesPorProducto, setLotesPorProducto] = useState<Map<string, LoteResumen[]>>(new Map());
+  const [disponiblesPorProducto, setDisponiblesPorProducto] = useState<Map<string, string[]>>(new Map());
+  const [sucursales, setSucursales] = useState<SucursalOpcion[]>([]);
   const [buscando, setBuscando] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
+
+  useEffect(() => {
+    supabase
+      .from("sucursales")
+      .select("id, nombre")
+      .eq("empresa_id", empresaId)
+      .eq("activo", true)
+      .order("nombre")
+      .then(({ data }) => setSucursales(data ?? []));
+  }, [supabase, empresaId]);
 
   async function exportarCatalogo() {
     setExportando(true);
@@ -183,6 +202,28 @@ export function ProductosAbm({
       }
       setLotesPorProducto(porProducto);
 
+      // Disponibilidad por sucursal: puramente informativo (no es de
+      // dónde hay stock — eso lo sigue definiendo `lotes` arriba). Se
+      // carga la sucursal directo (join), no hace falta cruzar con la
+      // lista de `sucursales` del estado.
+      const { data: dispData } = idsVisibles.length
+        ? await supabase
+            .from("productos_sucursales")
+            .select("producto_id, sucursales(nombre)")
+            .eq("empresa_id", empresaId)
+            .in("producto_id", idsVisibles)
+        : { data: [] };
+
+      const dispPorProducto = new Map<string, string[]>();
+      for (const d of dispData ?? []) {
+        const nombre = (d.sucursales as unknown as { nombre: string } | null)?.nombre;
+        if (!nombre) continue;
+        const arr = dispPorProducto.get(d.producto_id) ?? [];
+        arr.push(nombre);
+        dispPorProducto.set(d.producto_id, arr);
+      }
+      setDisponiblesPorProducto(dispPorProducto);
+
       setBuscando(false);
     }, 300);
     return () => clearTimeout(t);
@@ -228,6 +269,12 @@ export function ProductosAbm({
       .eq("producto_id", p.id)
       .maybeSingle();
 
+    const { data: disp } = await supabase
+      .from("productos_sucursales")
+      .select("sucursal_id")
+      .eq("empresa_id", empresaId)
+      .eq("producto_id", p.id);
+
     setForm({
       id: p.id,
       nombre: p.nombre,
@@ -250,6 +297,7 @@ export function ProductosAbm({
       distribuidor: pe?.distribuidor ?? "",
       loteCatalogo: pe?.lote_catalogo ?? "",
       loteCatalogo2: pe?.lote_catalogo_2 ?? "",
+      sucursalesDisponibles: (disp ?? []).map((d) => d.sucursal_id),
     });
   }
 
@@ -342,6 +390,28 @@ export function ProductosAbm({
         if (peErr) throw peErr;
       }
 
+      // Disponibilidad por sucursal: reemplaza el set completo (delete +
+      // insert) en vez de tratar de diffear — son a lo sumo unas pocas
+      // sucursales por empresa, no vale la pena la complejidad de un
+      // upsert selectivo acá.
+      const { error: delDispErr } = await supabase
+        .from("productos_sucursales")
+        .delete()
+        .eq("empresa_id", empresaId)
+        .eq("producto_id", productoId);
+      if (delDispErr) throw delDispErr;
+
+      if (form.sucursalesDisponibles.length > 0) {
+        const { error: insDispErr } = await supabase.from("productos_sucursales").insert(
+          form.sucursalesDisponibles.map((sucursalId) => ({
+            empresa_id: empresaId,
+            producto_id: productoId,
+            sucursal_id: sucursalId,
+          }))
+        );
+        if (insDispErr) throw insDispErr;
+      }
+
       setForm(null);
       setTerm((t) => t); // re-dispara la búsqueda vía el useEffect
     } catch (e) {
@@ -410,6 +480,7 @@ export function ProductosAbm({
                 <th className="px-4 py-2.5 font-medium">Principio activo</th>
                 <th className="px-4 py-2.5 font-medium">Categoría</th>
                 <th className="px-4 py-2.5 font-medium">Fabricante</th>
+                <th className="px-4 py-2.5 font-medium">Disponible en</th>
                 <th className="px-4 py-2.5 font-medium">Sucursal</th>
                 <th className="px-4 py-2.5 font-medium">Vencimiento</th>
                 <th className="px-4 py-2.5 font-medium">Estado</th>
@@ -434,6 +505,13 @@ export function ProductosAbm({
                   <td className="px-4 py-2.5 text-muted">{p.principio_activo ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">{p.categoria ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">{p.fabricante ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-muted">
+                    {(() => {
+                      const disp = disponiblesPorProducto.get(p.id);
+                      if (!disp || disp.length === 0) return "—";
+                      return disp.length > 1 ? `${disp[0]} +${disp.length - 1}` : disp[0];
+                    })()}
+                  </td>
                   <td className="px-4 py-2.5 text-muted">
                     {(() => {
                       const lotes = lotesPorProducto.get(p.id);
@@ -468,7 +546,7 @@ export function ProductosAbm({
               ))}
               {resultados.length === 0 && !buscando && (
                 <tr>
-                  <td colSpan={12} className="py-16">
+                  <td colSpan={13} className="py-16">
                     <div className="flex flex-col items-center gap-3 text-center">
                       <IconCajaVacia className="h-10 w-10 text-line" />
                       <p className="font-medium text-ink">Sin resultados.</p>
@@ -716,6 +794,34 @@ export function ProductosAbm({
                 />
               </Campo>
             </div>
+
+            {sucursales.length > 0 && (
+              <div>
+                <span className="mb-1.5 block text-xs font-medium text-muted">
+                  Disponible en (solo informativo, no afecta el conteo)
+                </span>
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                  {sucursales.map((s) => (
+                    <label key={s.id} className="flex items-center gap-1.5 text-sm text-ink">
+                      <input
+                        type="checkbox"
+                        className="accent-brand"
+                        checked={form.sucursalesDisponibles.includes(s.id)}
+                        onChange={(e) =>
+                          setForm({
+                            ...form,
+                            sucursalesDisponibles: e.target.checked
+                              ? [...form.sucursalesDisponibles, s.id]
+                              : form.sucursalesDisponibles.filter((id) => id !== s.id),
+                          })
+                        }
+                      />
+                      {s.nombre}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mt-6 flex items-center gap-4">
