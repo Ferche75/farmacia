@@ -107,7 +107,6 @@ export function aplicarMapeo(
       concentracion: mapeo.concentracion ? fila[mapeo.concentracion] : undefined,
       contenido,
       unidad,
-      forma: mapeo.forma ? fila[mapeo.forma] : undefined,
       principioActivo: mapeo.principioActivo ? fila[mapeo.principioActivo] : undefined,
       categoria: mapeo.categoria ? fila[mapeo.categoria] : undefined,
       codigoProveedor: mapeo.codigoProveedor ? fila[mapeo.codigoProveedor] : undefined,

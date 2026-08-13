@@ -10,7 +10,6 @@ interface ProductoFila {
   laboratorio_id: string | null;
   principio_activo: string | null;
   concentracion: string | null;
-  forma: string | null;
   contenido: number | null;
   unidad: string | null;
   categoria: string | null;
@@ -46,7 +45,6 @@ interface FormState {
   laboratorioNombre: string;
   principioActivo: string;
   concentracion: string;
-  forma: string;
   contenido: string;
   unidad: string;
   categoria: string;
@@ -65,7 +63,6 @@ const FORM_VACIO: FormState = {
   laboratorioNombre: "",
   principioActivo: "",
   concentracion: "",
-  forma: "",
   contenido: "",
   unidad: "",
   categoria: "",
@@ -116,7 +113,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       let query = supabase
         .from("productos")
         .select(
-          "id, nombre, laboratorio_id, principio_activo, concentracion, forma, contenido, unidad, categoria, requiere_receta, controlado, activo, laboratorios(nombre), codigos_barra(codigo_raw, es_principal)",
+          "id, nombre, laboratorio_id, principio_activo, concentracion, contenido, unidad, categoria, requiere_receta, controlado, activo, laboratorios(nombre), codigos_barra(codigo_raw, es_principal)",
           { count: "exact" }
         )
         .order("nombre")
@@ -185,7 +182,6 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       laboratorioNombre: p.laboratorios?.nombre ?? "",
       principioActivo: p.principio_activo ?? "",
       concentracion: p.concentracion ?? "",
-      forma: p.forma ?? "",
       contenido: p.contenido != null ? String(p.contenido) : "",
       unidad: p.unidad ?? "",
       categoria: p.categoria ?? "",
@@ -221,7 +217,6 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
         laboratorio_id: laboratorioId,
         principio_activo: form.principioActivo || null,
         concentracion: form.concentracion || null,
-        forma: form.forma || null,
         contenido: form.contenido ? Number(form.contenido) : null,
         unidad: form.unidad || null,
         categoria: form.categoria || null,
@@ -340,7 +335,6 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                 <th className="px-4 py-2.5 font-medium">Nombre</th>
                 <th className="px-4 py-2.5 font-medium">Código de barras</th>
                 <th className="px-4 py-2.5 font-medium">Laboratorio</th>
-                <th className="px-4 py-2.5 font-medium">Forma</th>
                 <th className="px-4 py-2.5 font-medium">Presentación</th>
                 <th className="px-4 py-2.5 font-medium">Concentración</th>
                 <th className="px-4 py-2.5 font-medium">Principio activo</th>
@@ -362,7 +356,6 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                     )}
                   </td>
                   <td className="px-4 py-2.5 text-muted">{p.laboratorios?.nombre ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-muted">{p.forma ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">
                     {p.contenido != null ? `${p.contenido} ${p.unidad ?? ""}`.trim() : "—"}
                   </td>
@@ -397,7 +390,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
               ))}
               {resultados.length === 0 && !buscando && (
                 <tr>
-                  <td colSpan={12} className="py-16">
+                  <td colSpan={11} className="py-16">
                     <div className="flex flex-col items-center gap-3 text-center">
                       <IconCajaVacia className="h-10 w-10 text-line" />
                       <p className="font-medium text-ink">Sin resultados.</p>
@@ -505,24 +498,6 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                   className="input"
                   value={form.concentracion}
                   onChange={(e) => setForm({ ...form, concentracion: e.target.value })}
-                />
-              </Campo>
-              <Campo label="Forma">
-                <input
-                  className="input"
-                  value={form.forma}
-                  onChange={(e) => {
-                    const forma = e.target.value;
-                    // Formas líquidas se miden en ml — se autocompleta la
-                    // unidad solo si todavía está vacía, para no pisar lo
-                    // que el usuario ya haya tipeado a mano.
-                    const esLiquido = /jarabe|suspensi|soluci|gotas|inyectable|ampolla/i.test(forma);
-                    setForm({
-                      ...form,
-                      forma,
-                      unidad: esLiquido && !form.unidad ? "ml" : form.unidad,
-                    });
-                  }}
                 />
               </Campo>
               <Campo label="Unidad">

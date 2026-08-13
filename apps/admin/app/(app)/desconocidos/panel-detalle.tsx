@@ -8,7 +8,6 @@ interface FormEdicion {
   nombre: string;
   laboratorio: string;
   concentracion: string;
-  forma: string;
   contenido: string;
   unidad: string;
 }
@@ -25,7 +24,6 @@ function formVacio(item: DesconocidoItem | null): FormEdicion {
     nombre: ia?.nombre ?? "",
     laboratorio: ia?.laboratorio ?? "",
     concentracion: ia?.concentracion ?? "",
-    forma: "",
     contenido: ia?.contenido ? String(ia.contenido) : "",
     unidad: ia?.unidad ?? "",
   };
@@ -161,7 +159,6 @@ export function PanelDetalle({
           nuevoProducto: {
             nombre: form.nombre.trim(),
             concentracion: form.concentracion || null,
-            forma: form.forma || null,
             contenido: form.contenido ? Number(form.contenido) : null,
             unidad: form.unidad || null,
             origen: item.ia_respuesta ? "ia" : "manual",
@@ -305,12 +302,6 @@ export function PanelDetalle({
                 value={form.concentracion}
                 onChange={(e) => setForm({ ...form, concentracion: e.target.value })}
                 placeholder="Concentración"
-              />
-              <input
-                className={inputClase}
-                value={form.forma}
-                onChange={(e) => setForm({ ...form, forma: e.target.value })}
-                placeholder="Forma"
               />
               <input
                 className={inputClase}

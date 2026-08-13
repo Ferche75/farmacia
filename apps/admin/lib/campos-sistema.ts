@@ -19,7 +19,6 @@ export const CAMPOS_SISTEMA = [
   { campo: "concentracion", label: "Concentración", requerido: false },
   { campo: "contenido", label: "Contenido (número)", requerido: false },
   { campo: "unidad", label: "Unidad", requerido: false },
-  { campo: "forma", label: "Forma", requerido: false },
   { campo: "principioActivo", label: "Principio activo", requerido: false },
   { campo: "categoria", label: "Categoría / línea", requerido: false },
   { campo: "codigoProveedor", label: "Código de proveedor", requerido: false },
@@ -39,7 +38,6 @@ export const MAPEO_VACIO: MapeoColumnas = {
   concentracion: "",
   contenido: "",
   unidad: "",
-  forma: "",
   principioActivo: "",
   categoria: "",
   codigoProveedor: "",
@@ -69,7 +67,6 @@ const SINONIMOS: Partial<Record<CampoSistema, string[]>> = {
   concentracion: ["concentracion", "concentration", "dosis"],
   contenido: ["contenido"],
   unidad: ["unidad"],
-  forma: ["forma"],
   categoria: ["categoria", "linea", "grupo", "rubro"],
   costo: ["costo", "cost", "preciocosto", "precioproveedor"],
   precio: ["precio", "price", "precioventa", "pvp"],
@@ -77,7 +74,7 @@ const SINONIMOS: Partial<Record<CampoSistema, string[]>> = {
 
 const ORDEN_AUTOMAPEO: CampoSistema[] = [
   "codigoProveedor", "codigoBarra", "laboratorio", "nombre", "principioActivo",
-  "concentracion", "contenido", "unidad", "forma", "categoria", "costo", "precio",
+  "concentracion", "contenido", "unidad", "categoria", "costo", "precio",
 ];
 
 function normalizarHeader(s: string): string {

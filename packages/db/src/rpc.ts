@@ -239,7 +239,6 @@ export interface FilaImportacion {
   concentracion?: string;
   contenido?: string | number;
   unidad?: string;
-  forma?: string;
   principioActivo?: string;
   categoria?: string;
   codigoProveedor?: string;
@@ -289,7 +288,6 @@ function filaImportacionAPayload(f: FilaImportacion): Json {
     concentracion: f.concentracion ?? null,
     contenido: f.contenido ?? null,
     unidad: f.unidad ?? null,
-    forma: f.forma ?? null,
     principio_activo: f.principioActivo ?? null,
     categoria: f.categoria ?? null,
     codigo_proveedor: f.codigoProveedor ?? null,
