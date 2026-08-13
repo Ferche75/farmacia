@@ -28,6 +28,7 @@ async function main() {
     forma: "comprimidos",
     contenido: 20,
     unidad: "comprimidos",
+    unidadesPorCodigo: 1,
   }));
   await db.catalogo.bulkPut(productos);
 

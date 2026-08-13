@@ -41,7 +41,7 @@ import { TarjetaSugerencia } from "./tarjeta-sugerencia";
 const IDLE_MS = 80;
 
 type Feedback =
-  | { tipo: "encontrado"; linea: LineaLocal }
+  | { tipo: "encontrado"; linea: LineaLocal; unidadesPorCodigo: number }
   | { tipo: "desconocido_conocido"; linea: LineaDesconocidoLocal; foto: Blob | null }
   | { tipo: "no_encontrado"; codigoRaw: string; codigoNorm: string }
   | { tipo: "duplicado"; codigoRaw: string }
@@ -132,7 +132,7 @@ export function PantallaConteo({
     switch (resultado.tipo) {
       case "encontrado":
         feedbackEncontrado();
-        setFeedback({ tipo: "encontrado", linea: resultado.linea });
+        setFeedback({ tipo: "encontrado", linea: resultado.linea, unidadesPorCodigo: resultado.unidadesPorCodigo });
         await refrescarLineas();
         await refrescarPendientes();
         break;
@@ -389,6 +389,9 @@ export function PantallaConteo({
               <p className="text-lg font-semibold text-paper">{feedback.linea.nombre}</p>
               {feedback.linea.presentacion && (
                 <p className="text-sm text-muted">{feedback.linea.presentacion}</p>
+              )}
+              {feedback.unidadesPorCodigo > 1 && (
+                <p className="text-xs font-medium text-brand">×{feedback.unidadesPorCodigo} por caja</p>
               )}
               <p className="mt-1 font-mono text-3xl font-semibold tabular-nums text-found">
                 {feedback.linea.cantidad}

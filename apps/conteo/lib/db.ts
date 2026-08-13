@@ -13,6 +13,10 @@ export interface ProductoLocal {
   forma: string | null;
   contenido: number | null;
   unidad: string | null;
+  /** Cuántas unidades vale ESTE código en particular (ej. código de caja
+   * de 10 vs. código de la unidad suelta, que vale 1) — ver
+   * codigos_barra.unidades_por_codigo. Default 1. */
+  unidadesPorCodigo: number;
 }
 
 export interface LineaLocal {

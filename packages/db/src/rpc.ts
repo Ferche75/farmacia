@@ -235,6 +235,10 @@ export const TAMANO_LOTE_IMPORTACION = 500;
  * visual de columnas), lista para mandar a previsualizar/confirmar. */
 export interface FilaImportacion {
   codigoBarra: string;
+  /** Cuántas unidades vale este código (caja/blíster) — ver
+   * codigos_barra.unidades_por_codigo. Solo se usa al CREAR un producto
+   * nuevo por código de barras; no se toca en updates. */
+  unidadesPorCodigo?: string | number;
   nombre?: string;
   concentracion?: string;
   contenido?: string | number;
@@ -284,6 +288,7 @@ export interface ResultadoFinalizarImportacion {
 function filaImportacionAPayload(f: FilaImportacion): Json {
   return {
     codigo_barra: f.codigoBarra,
+    unidades_por_codigo: f.unidadesPorCodigo ?? null,
     nombre: f.nombre ?? null,
     concentracion: f.concentracion ?? null,
     contenido: f.contenido ?? null,

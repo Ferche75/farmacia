@@ -6,7 +6,7 @@ import { db, type LineaLocal } from "./db";
 // levantar un navegador, y la UI (app/(app)/conteo/*) solo lo consume.
 
 export type ResultadoEscaneo =
-  | { tipo: "encontrado"; linea: LineaLocal }
+  | { tipo: "encontrado"; linea: LineaLocal; unidadesPorCodigo: number }
   | { tipo: "no_encontrado"; codigoRaw: string; codigoNorm: string | null }
   | { tipo: "duplicado"; codigoRaw: string }
   | { tipo: "codigo_invalido"; codigoRaw: string };
@@ -88,10 +88,17 @@ export async function procesarEscaneo(params: ProcesarEscaneoParams): Promise<Re
   }
 
   const lineaId = `${conteoId}:${producto.productoId}`;
+  // Un código de caja/blister vale más de 1 unidad (unidades_por_codigo) —
+  // el delta que se aplica y el que se sincroniza al servidor ya tiene que
+  // ser la cantidad REAL de unidades, no la cantidad de escaneos: el
+  // servidor solo suma escaneos.delta tal cual (recalcular_cantidad_linea),
+  // nunca lo multiplica.
+  const unidadesPorCodigo = producto.unidadesPorCodigo || 1;
+  const deltaReal = delta * unidadesPorCodigo;
 
   const linea = await db.transaction("rw", db.lineas, db.colaEscaneos, async () => {
     const existente = await db.lineas.get(lineaId);
-    const nuevaCantidad = (existente?.cantidad ?? 0) + delta;
+    const nuevaCantidad = (existente?.cantidad ?? 0) + deltaReal;
 
     const nuevaLinea: LineaLocal = {
       id: lineaId,
@@ -112,7 +119,7 @@ export async function procesarEscaneo(params: ProcesarEscaneoParams): Promise<Re
       lineaId,
       codigoRaw,
       codigoNorm,
-      delta,
+      delta: deltaReal,
       lote,
       vencimiento,
       dispositivo: dispositivoActual(),
@@ -123,7 +130,7 @@ export async function procesarEscaneo(params: ProcesarEscaneoParams): Promise<Re
     return nuevaLinea;
   });
 
-  return { tipo: "encontrado", linea };
+  return { tipo: "encontrado", linea, unidadesPorCodigo };
 }
 
 /** Deshace el último escaneo del conteo (global, no por producto — "el

@@ -15,6 +15,7 @@
 // porque ese camino lo necesita siempre.
 export const CAMPOS_SISTEMA = [
   { campo: "codigoBarra", label: "Código de barras", requerido: false },
+  { campo: "unidadesPorCodigo", label: "Unidades por código (caja/blíster)", requerido: false },
   { campo: "nombre", label: "Nombre", requerido: true },
   { campo: "concentracion", label: "Concentración", requerido: false },
   { campo: "contenido", label: "Contenido (número)", requerido: false },
@@ -34,6 +35,7 @@ export type MapeoColumnas = Record<CampoSistema, string>;
 
 export const MAPEO_VACIO: MapeoColumnas = {
   codigoBarra: "",
+  unidadesPorCodigo: "",
   nombre: "",
   concentracion: "",
   contenido: "",

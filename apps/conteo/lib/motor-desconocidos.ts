@@ -177,6 +177,9 @@ export async function migrarDesconocidoAProductoLocal(params: {
         forma,
         contenido,
         unidad,
+        // resolver_desconocido (servidor) siempre crea el codigo_barra con
+        // el default de la columna (1) — ese RPC no expone un multiplicador.
+        unidadesPorCodigo: 1,
       });
 
       const idDesc = `${conteoId}:${codigoNorm}`;

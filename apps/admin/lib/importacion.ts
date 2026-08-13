@@ -103,6 +103,7 @@ export function aplicarMapeo(
 
     return {
       codigoBarra: (mapeo.codigoBarra ? fila[mapeo.codigoBarra] : "") ?? "",
+      unidadesPorCodigo: mapeo.unidadesPorCodigo ? fila[mapeo.unidadesPorCodigo] : undefined,
       nombre: mapeo.nombre ? fila[mapeo.nombre] : undefined,
       concentracion: mapeo.concentracion ? fila[mapeo.concentracion] : undefined,
       contenido,

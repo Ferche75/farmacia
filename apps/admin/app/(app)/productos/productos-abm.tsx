@@ -52,6 +52,7 @@ interface FormState {
   controlado: boolean;
   activo: boolean;
   codigoBarra: string; // solo se usa al crear
+  unidadesPorCodigo: string; // solo se usa al crear
   costo: string;
   precio: string;
   stockMinimo: string;
@@ -70,6 +71,7 @@ const FORM_VACIO: FormState = {
   controlado: false,
   activo: true,
   codigoBarra: "",
+  unidadesPorCodigo: "1",
   costo: "",
   precio: "",
   stockMinimo: "",
@@ -208,6 +210,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       controlado: p.controlado,
       activo: p.activo,
       codigoBarra: "",
+      unidadesPorCodigo: "1",
       costo: pe?.costo != null ? String(pe.costo) : "",
       precio: pe?.precio != null ? String(pe.precio) : "",
       stockMinimo: pe?.stock_minimo != null ? String(pe.stock_minimo) : "",
@@ -272,6 +275,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
           codigo_norm: codigoNorm,
           codigo_raw: form.codigoBarra.trim(),
           es_principal: true,
+          unidades_por_codigo: Number(form.unidadesPorCodigo) || 1,
         });
         if (cbErr) throw cbErr;
       }
@@ -499,6 +503,22 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                   value={form.codigoBarra}
                   onChange={(e) => setForm({ ...form, codigoBarra: e.target.value })}
                 />
+              </Campo>
+            )}
+
+            {!form.id && (
+              <Campo label="Unidades por código">
+                <input
+                  type="number"
+                  min={1}
+                  className="input"
+                  value={form.unidadesPorCodigo}
+                  onChange={(e) => setForm({ ...form, unidadesPorCodigo: e.target.value })}
+                />
+                <p className="mt-1 text-xs text-muted">
+                  Si este código es de una caja/blíster, cuántas unidades sueltas contiene. Al escanearlo en el
+                  conteo, suma esa cantidad de una — dejalo en 1 si es la unidad suelta.
+                </p>
               </Campo>
             )}
 

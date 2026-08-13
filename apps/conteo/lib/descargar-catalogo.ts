@@ -11,6 +11,7 @@ export interface ProgresoDescarga {
 interface FilaCodigoBarra {
   codigo_norm: string;
   producto_id: string;
+  unidades_por_codigo: number;
   productos: {
     nombre: string;
     concentracion: string | null;
@@ -48,7 +49,7 @@ export async function descargarCatalogo(
     const { data, error } = await supabase
       .from("codigos_barra")
       .select(
-        "codigo_norm, producto_id, productos(nombre, concentracion, forma, contenido, unidad, laboratorios(nombre))"
+        "codigo_norm, producto_id, unidades_por_codigo, productos(nombre, concentracion, forma, contenido, unidad, laboratorios(nombre))"
       )
       .range(desde, hasta);
     if (error) throw error;
@@ -62,6 +63,7 @@ export async function descargarCatalogo(
       forma: row.productos?.forma ?? null,
       contenido: row.productos?.contenido ?? null,
       unidad: row.productos?.unidad ?? null,
+      unidadesPorCodigo: row.unidades_por_codigo || 1,
     }));
 
     await db.catalogo.bulkPut(filas);
