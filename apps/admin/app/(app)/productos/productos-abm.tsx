@@ -287,7 +287,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
   }
 
   return (
-    <div className={`grid gap-6 ${form ? "grid-cols-[1fr_440px]" : "grid-cols-1"}`}>
+    <div>
       <div className="rounded-lg border border-line bg-surface p-8">
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Catálogo de productos</h1>
         <p className="mt-1.5 text-sm text-muted">
@@ -452,7 +452,8 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       </div>
 
       {form && (
-        <div className="h-fit rounded-lg border border-line bg-surface p-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-6">
+        <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-line bg-surface p-8 shadow-xl">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold text-ink">{form.id ? "Editar producto" : "Nuevo producto"}</h2>
             <button onClick={() => setForm(null)} aria-label="Cerrar" className="text-muted transition-colors hover:text-ink">
@@ -630,6 +631,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
               Cancelar
             </button>
           </div>
+        </div>
         </div>
       )}
     </div>
