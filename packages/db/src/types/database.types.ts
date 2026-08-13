@@ -570,15 +570,15 @@ export interface Database {
         Returns: Json;
       };
       iniciar_importacion: {
-        Args: { p_archivo: string; p_mapeo: Json };
+        Args: { p_archivo: string; p_mapeo: Json; p_sucursal_id?: string | null };
         Returns: string;
       };
       previsualizar_importacion: {
-        Args: { p_laboratorio: string; p_filas: Json };
+        Args: { p_laboratorio: string | null; p_filas: Json };
         Returns: Json;
       };
       confirmar_importacion_lote: {
-        Args: { p_importacion_id: string; p_laboratorio: string; p_filas: Json };
+        Args: { p_importacion_id: string; p_laboratorio: string | null; p_filas: Json };
         Returns: Json;
       };
       finalizar_importacion: {

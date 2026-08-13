@@ -29,6 +29,11 @@ interface MapeoGuardado {
   mapeo: MapeoColumnas;
 }
 
+interface SucursalOpcion {
+  id: string;
+  nombre: string;
+}
+
 interface Progreso {
   lote: number;
   totalLotes: number;
@@ -37,10 +42,17 @@ interface Progreso {
   rechazados: number;
 }
 
-export function Importador({ empresaId }: { empresaId: string }) {
+export function Importador({
+  empresaId,
+  sucursales,
+}: {
+  empresaId: string;
+  sucursales: SucursalOpcion[];
+}) {
   const supabase = useMemo(() => createBrowserClient(), []);
 
   const [paso, setPaso] = useState<Paso>("laboratorio");
+  const [sucursalId, setSucursalId] = useState("");
   const [laboratorio, setLaboratorio] = useState("");
   const [margen, setMargen] = useState("");
   const [archivo, setArchivo] = useState<ArchivoParseado | null>(null);
@@ -120,7 +132,7 @@ export function Importador({ empresaId }: { empresaId: string }) {
     setError(null);
     try {
       const filas = aplicarMapeo(archivo.filas, mapeo, margen ? Number(margen) : undefined);
-      const resultado = await previsualizarImportacion(supabase, laboratorio.trim(), filas);
+      const resultado = await previsualizarImportacion(supabase, laboratorio.trim() || null, filas);
       setPreview(resultado);
       setPaso("preview");
     } catch (e) {
@@ -136,12 +148,17 @@ export function Importador({ empresaId }: { empresaId: string }) {
     setError(null);
     try {
       const filas = aplicarMapeo(archivo.filas, mapeo, margen ? Number(margen) : undefined);
-      const importacionId = await iniciarImportacion(supabase, nombreArchivo, mapeo as unknown as Json);
+      const importacionId = await iniciarImportacion(
+        supabase,
+        nombreArchivo,
+        mapeo as unknown as Json,
+        sucursalId || null
+      );
       const lotes = trocear(filas, TAMANO_LOTE_IMPORTACION);
 
       let acc = { creados: 0, actualizados: 0, rechazados: 0 };
       for (let i = 0; i < lotes.length; i++) {
-        const r = await confirmarImportacionLote(supabase, importacionId, laboratorio.trim(), lotes[i]);
+        const r = await confirmarImportacionLote(supabase, importacionId, laboratorio.trim() || null, lotes[i]);
         acc = {
           creados: acc.creados + r.creados,
           actualizados: acc.actualizados + r.actualizados,
@@ -159,6 +176,7 @@ export function Importador({ empresaId }: { empresaId: string }) {
 
   function empezarDeNuevo() {
     setPaso("laboratorio");
+    setSucursalId("");
     setLaboratorio("");
     setMargen("");
     setArchivo(null);
@@ -202,7 +220,27 @@ export function Importador({ empresaId }: { empresaId: string }) {
       {paso === "laboratorio" && (
         <div className="max-w-lg space-y-4 rounded-lg border border-line bg-surface p-6">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink">Laboratorio</label>
+            <label className="mb-1.5 block text-sm font-medium text-ink">Sucursal *</label>
+            <select
+              value={sucursalId}
+              onChange={(e) => setSucursalId(e.target.value)}
+              className="input"
+            >
+              <option value="">-- elegir --</option>
+              {sucursales.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.nombre}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-muted">
+              De qué sucursal es este archivo — queda registrado en la importación. El costo/precio se guarda
+              para toda la empresa igual, no varía entre sucursales.
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-ink">Laboratorio — opcional</label>
             <input
               type="text"
               value={laboratorio}
@@ -211,9 +249,9 @@ export function Importador({ empresaId }: { empresaId: string }) {
               className="input"
             />
             <p className="mt-1.5 text-xs text-muted">
-              Se usa para todo el archivo, salvo que mapees una columna &quot;Laboratorio&quot; en el paso
-              siguiente (para archivos que mezclan varios proveedores). Los mapeos guardados se buscan por este
-              nombre.
+              Solo hace falta si el archivo NO trae su propia columna &quot;Laboratorio&quot; por fila (para
+              archivos que mezclan varios proveedores, mapeá esa columna en el paso siguiente en vez de
+              completar esto). Los mapeos guardados se buscan por este nombre.
             </p>
           </div>
 
@@ -261,16 +299,14 @@ export function Importador({ empresaId }: { empresaId: string }) {
             <input
               type="file"
               accept=".csv,.xlsx,.xls"
-              disabled={!laboratorio.trim() || cargando}
+              disabled={!sucursalId || cargando}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) onArchivoElegido(file);
               }}
               className="block w-full text-sm text-ink file:mr-3 file:rounded-md file:border-0 file:bg-brand-soft file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-brand disabled:opacity-50"
             />
-            {!laboratorio.trim() && (
-              <p className="mt-1.5 text-xs text-muted">Completá el laboratorio primero.</p>
-            )}
+            {!sucursalId && <p className="mt-1.5 text-xs text-muted">Elegí la sucursal primero.</p>}
           </div>
         </div>
       )}

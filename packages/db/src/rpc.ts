@@ -302,11 +302,13 @@ function filaImportacionAPayload(f: FilaImportacion): Json {
 export async function iniciarImportacion(
   supabase: SupabaseClient<Database>,
   archivo: string,
-  mapeo: Json
+  mapeo: Json,
+  sucursalId?: string | null
 ): Promise<string> {
   const { data, error } = await supabase.rpc("iniciar_importacion", {
     p_archivo: archivo,
     p_mapeo: mapeo,
+    p_sucursal_id: sucursalId ?? null,
   });
 
   if (error) throw error;
@@ -317,7 +319,7 @@ export async function iniciarImportacion(
  * nada — para la vista previa + el resumen antes de confirmar. */
 export async function previsualizarImportacion(
   supabase: SupabaseClient<Database>,
-  laboratorio: string,
+  laboratorio: string | null,
   filas: FilaImportacion[]
 ): Promise<ResultadoPrevisualizacion> {
   const { data, error } = await supabase.rpc("previsualizar_importacion", {
@@ -334,7 +336,7 @@ export async function previsualizarImportacion(
 export async function confirmarImportacionLote(
   supabase: SupabaseClient<Database>,
   importacionId: string,
-  laboratorio: string,
+  laboratorio: string | null,
   filas: FilaImportacion[]
 ): Promise<ResultadoConfirmarLote> {
   const { data, error } = await supabase.rpc("confirmar_importacion_lote", {
