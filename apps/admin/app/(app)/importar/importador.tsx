@@ -11,7 +11,7 @@ import {
   type Json,
   type ResultadoPrevisualizacion,
 } from "@farmacia/db";
-import { CAMPOS_SISTEMA, MAPEO_VACIO, type MapeoColumnas } from "@/lib/campos-sistema";
+import { CAMPOS_SISTEMA, MAPEO_VACIO, autoMapearColumnas, type MapeoColumnas } from "@/lib/campos-sistema";
 import { parseArchivo, aplicarMapeo, trocear, type ArchivoParseado } from "@/lib/importacion";
 
 type Paso = "laboratorio" | "mapeo" | "preview" | "confirmando" | "listo";
@@ -88,6 +88,17 @@ export function Importador({
       const parseado = await parseArchivo(file);
       setArchivo(parseado);
       setNombreArchivo(file.name);
+      // Auto-mapeo por nombre de columna (ver campos-sistema.ts) — solo
+      // rellena lo que todavía esté sin mapear, nunca pisa un mapeo
+      // guardado que el usuario ya haya elegido arriba.
+      setMapeo((prev) => {
+        const sugerido = autoMapearColumnas(parseado.headers);
+        const combinado = { ...prev };
+        for (const campo of CAMPOS_SISTEMA.map((c) => c.campo)) {
+          if (!combinado[campo] && sugerido[campo]) combinado[campo] = sugerido[campo];
+        }
+        return combinado;
+      });
       setPaso("mapeo");
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo leer el archivo.");

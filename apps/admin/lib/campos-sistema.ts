@@ -47,3 +47,77 @@ export const MAPEO_VACIO: MapeoColumnas = {
   costo: "",
   precio: "",
 };
+
+// Sinónimos de headers reales que ya se vieron en archivos de
+// proveedores (ver docs/decisiones.md, "Campos nuevos..."). El orden de
+// ORDEN_AUTOMAPEO importa: los campos más específicos van primero para
+// quedarse con el header antes de que un campo más genérico lo reclame
+// (ej. "ItemCode" tiene que caer en codigoProveedor, no en codigoBarra,
+// aunque codigoBarra también acepte "codigo" como sinónimo genérico).
+const SINONIMOS: Partial<Record<CampoSistema, string[]>> = {
+  codigoProveedor: [
+    "itemcode", "codproveedor", "codigoproveedor", "codprov", "codinterno",
+    "codigointerno", "codsistema", "codigosistema", "referencia", "sku",
+  ],
+  codigoBarra: [
+    "codebars", "codigobarra", "codigodebarra", "codigosbarra", "codbarra",
+    "codbarras", "barcode", "ean", "ean13", "gtin", "codigo",
+  ],
+  laboratorio: ["laboratorio", "lab"],
+  nombre: ["itemname", "nombre", "producto", "nombreproducto", "articulo", "item"],
+  principioActivo: ["principioactivo", "principio", "pa", "dci"],
+  concentracion: ["concentracion", "concentration", "dosis"],
+  contenido: ["contenido"],
+  unidad: ["unidad"],
+  forma: ["forma"],
+  categoria: ["categoria", "linea", "grupo", "rubro"],
+  costo: ["costo", "cost", "preciocosto", "precioproveedor"],
+  precio: ["precio", "price", "precioventa", "pvp"],
+};
+
+const ORDEN_AUTOMAPEO: CampoSistema[] = [
+  "codigoProveedor", "codigoBarra", "laboratorio", "nombre", "principioActivo",
+  "concentracion", "contenido", "unidad", "forma", "categoria", "costo", "precio",
+];
+
+function normalizarHeader(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/** Adivina el mapeo columna → campo del sistema a partir de los headers
+ * del archivo, por nombre. Deliberadamente conservador: solo mapea "a
+ * ojo" (contención en vez de igualdad exacta) para sinónimos de 5+
+ * caracteres — un sinónimo corto como "pa" solo matchea si el header
+ * ENTERO es "pa", nunca como substring de un header más largo, para no
+ * generar falsos positivos. Cada header se usa como mucho una vez;
+ * "cantidad"/columnas combinadas (contenido+unidad en el mismo header,
+ * ver aplicarMapeo) quedan afuera a propósito — mejor sin mapear que
+ * adivinado mal en un caso ambiguo documentado. */
+export function autoMapearColumnas(headers: string[]): Partial<MapeoColumnas> {
+  const disponibles = [...headers];
+  const sugerido: Partial<MapeoColumnas> = {};
+
+  for (const campo of ORDEN_AUTOMAPEO) {
+    const sinonimos = SINONIMOS[campo] ?? [];
+
+    let elegido = disponibles.find((h) => sinonimos.includes(normalizarHeader(h)));
+
+    if (!elegido) {
+      elegido = disponibles.find((h) => {
+        const hn = normalizarHeader(h);
+        return sinonimos.some((s) => s.length >= 5 && (hn.includes(s) || s.includes(hn)));
+      });
+    }
+
+    if (elegido) {
+      sugerido[campo] = elegido;
+      disponibles.splice(disponibles.indexOf(elegido), 1);
+    }
+  }
+
+  return sugerido;
+}
