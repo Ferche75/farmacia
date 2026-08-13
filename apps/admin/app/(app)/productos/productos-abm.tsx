@@ -13,6 +13,7 @@ interface ProductoFila {
   contenido: number | null;
   unidad: string | null;
   categoria: string | null;
+  fabricante: string | null;
   requiere_receta: boolean;
   controlado: boolean;
   activo: boolean;
@@ -28,14 +29,29 @@ function codigoPrincipal(codigos: ProductoFila["codigos_barra"]): string | null 
   return (codigos.find((c) => c.es_principal) ?? codigos[0]).codigo_raw;
 }
 
-// Mismos umbrales de 90/180 días que ya usa resumen_conteo (Fase 6) y la
-// página /vencimientos.
-function VencimientoBadge({ fecha }: { fecha: string }) {
+interface UmbralSemaforo {
+  rojoDias: number;
+  amarilloDias: number;
+  verdeDias: number;
+}
+
+// Umbrales editables por empresa desde /configuracion — ver
+// VENCIMIENTO_SEMAFORO_DEFAULT (@farmacia/db) para el default (1/3/6
+// meses). resumen_conteo (Fase 6) sigue fijo en 90/180 a propósito, ver
+// docs/decisiones.md — es una métrica de reporte distinta, no este badge.
+function VencimientoBadge({ fecha, umbral }: { fecha: string; umbral: UmbralSemaforo }) {
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
   const dias = Math.round((new Date(fecha).getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
   const texto = new Date(fecha).toLocaleDateString("es-BO");
-  const color = dias < 0 || dias <= 90 ? "text-danger" : dias <= 180 ? "text-warn" : "text-muted";
+  const color =
+    dias < 0 || dias <= umbral.rojoDias
+      ? "text-danger"
+      : dias <= umbral.amarilloDias
+        ? "text-warn"
+        : dias <= umbral.verdeDias
+          ? "text-ok"
+          : "text-muted";
   return <span className={color}>{texto}</span>;
 }
 
@@ -48,6 +64,7 @@ interface FormState {
   contenido: string;
   unidad: string;
   categoria: string;
+  fabricante: string;
   requiereReceta: boolean;
   controlado: boolean;
   activo: boolean;
@@ -57,6 +74,9 @@ interface FormState {
   precio: string;
   stockMinimo: string;
   codigoProveedor: string;
+  distribuidor: string;
+  loteCatalogo: string;
+  loteCatalogo2: string;
 }
 
 const FORM_VACIO: FormState = {
@@ -67,6 +87,7 @@ const FORM_VACIO: FormState = {
   contenido: "",
   unidad: "",
   categoria: "",
+  fabricante: "",
   requiereReceta: false,
   controlado: false,
   activo: true,
@@ -76,6 +97,9 @@ const FORM_VACIO: FormState = {
   precio: "",
   stockMinimo: "",
   codigoProveedor: "",
+  distribuidor: "",
+  loteCatalogo: "",
+  loteCatalogo2: "",
 };
 
 interface LoteResumen {
@@ -85,7 +109,13 @@ interface LoteResumen {
 
 const TAMANO_PAGINA = 50;
 
-export function ProductosAbm({ empresaId }: { empresaId: string }) {
+export function ProductosAbm({
+  empresaId,
+  umbralVencimiento,
+}: {
+  empresaId: string;
+  umbralVencimiento: UmbralSemaforo;
+}) {
   const supabase = useMemo(() => createBrowserClient(), []);
   const [term, setTerm] = useState("");
   const [pagina, setPagina] = useState(0);
@@ -115,7 +145,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       let query = supabase
         .from("productos")
         .select(
-          "id, nombre, laboratorio_id, principio_activo, concentracion, contenido, unidad, categoria, requiere_receta, controlado, activo, laboratorios(nombre), codigos_barra(codigo_raw, es_principal)",
+          "id, nombre, laboratorio_id, principio_activo, concentracion, contenido, unidad, categoria, fabricante, requiere_receta, controlado, activo, laboratorios(nombre), codigos_barra(codigo_raw, es_principal)",
           { count: "exact" }
         )
         .order("nombre")
@@ -183,6 +213,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       laboratorioNombre: p.laboratorios?.nombre ?? "",
       principioActivo: p.principio_activo ?? "",
       categoria: p.categoria ?? "",
+      fabricante: p.fabricante ?? "",
       requiereReceta: p.requiere_receta,
       controlado: p.controlado,
     });
@@ -192,7 +223,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
     setError(null);
     const { data: pe } = await supabase
       .from("productos_empresa")
-      .select("costo, precio, stock_minimo, codigo_proveedor")
+      .select("costo, precio, stock_minimo, codigo_proveedor, distribuidor, lote_catalogo, lote_catalogo_2")
       .eq("empresa_id", empresaId)
       .eq("producto_id", p.id)
       .maybeSingle();
@@ -206,6 +237,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       contenido: p.contenido != null ? String(p.contenido) : "",
       unidad: p.unidad ?? "",
       categoria: p.categoria ?? "",
+      fabricante: p.fabricante ?? "",
       requiereReceta: p.requiere_receta,
       controlado: p.controlado,
       activo: p.activo,
@@ -215,6 +247,9 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
       precio: pe?.precio != null ? String(pe.precio) : "",
       stockMinimo: pe?.stock_minimo != null ? String(pe.stock_minimo) : "",
       codigoProveedor: pe?.codigo_proveedor ?? "",
+      distribuidor: pe?.distribuidor ?? "",
+      loteCatalogo: pe?.lote_catalogo ?? "",
+      loteCatalogo2: pe?.lote_catalogo_2 ?? "",
     });
   }
 
@@ -242,6 +277,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
         contenido: form.contenido ? Number(form.contenido) : null,
         unidad: form.unidad || null,
         categoria: form.categoria || null,
+        fabricante: form.fabricante || null,
         requiere_receta: form.requiereReceta,
         controlado: form.controlado,
         activo: form.activo,
@@ -280,7 +316,15 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
         if (cbErr) throw cbErr;
       }
 
-      if (form.costo || form.precio || form.stockMinimo || form.codigoProveedor) {
+      if (
+        form.costo ||
+        form.precio ||
+        form.stockMinimo ||
+        form.codigoProveedor ||
+        form.distribuidor ||
+        form.loteCatalogo ||
+        form.loteCatalogo2
+      ) {
         const { error: peErr } = await supabase.from("productos_empresa").upsert(
           {
             empresa_id: empresaId,
@@ -289,6 +333,9 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
             precio: form.precio ? Number(form.precio) : null,
             stock_minimo: form.stockMinimo ? Number(form.stockMinimo) : null,
             codigo_proveedor: form.codigoProveedor || null,
+            distribuidor: form.distribuidor || null,
+            lote_catalogo: form.loteCatalogo || null,
+            lote_catalogo_2: form.loteCatalogo2 || null,
           },
           { onConflict: "empresa_id,producto_id" }
         );
@@ -362,6 +409,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                 <th className="px-4 py-2.5 font-medium">Concentración</th>
                 <th className="px-4 py-2.5 font-medium">Principio activo</th>
                 <th className="px-4 py-2.5 font-medium">Categoría</th>
+                <th className="px-4 py-2.5 font-medium">Fabricante</th>
                 <th className="px-4 py-2.5 font-medium">Sucursal</th>
                 <th className="px-4 py-2.5 font-medium">Vencimiento</th>
                 <th className="px-4 py-2.5 font-medium">Estado</th>
@@ -385,6 +433,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                   <td className="px-4 py-2.5 text-muted">{p.concentracion ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">{p.principio_activo ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">{p.categoria ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-muted">{p.fabricante ?? "—"}</td>
                   <td className="px-4 py-2.5 text-muted">
                     {(() => {
                       const lotes = lotesPorProducto.get(p.id);
@@ -398,7 +447,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                       const lotes = lotesPorProducto.get(p.id);
                       if (!lotes || lotes.length === 0) return <span className="text-muted">—</span>;
                       // Ordenados por vencimiento asc en la consulta: el primero es el más próximo.
-                      return <VencimientoBadge fecha={lotes[0].vencimiento} />;
+                      return <VencimientoBadge fecha={lotes[0].vencimiento} umbral={umbralVencimiento} />;
                     })()}
                   </td>
                   <td className="px-4 py-2.5">
@@ -419,7 +468,7 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
               ))}
               {resultados.length === 0 && !buscando && (
                 <tr>
-                  <td colSpan={11} className="py-16">
+                  <td colSpan={12} className="py-16">
                     <div className="flex flex-col items-center gap-3 text-center">
                       <IconCajaVacia className="h-10 w-10 text-line" />
                       <p className="font-medium text-ink">Sin resultados.</p>
@@ -559,6 +608,13 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                   onChange={(e) => setForm({ ...form, categoria: e.target.value })}
                 />
               </Campo>
+              <Campo label="Fabricante">
+                <input
+                  className="input"
+                  value={form.fabricante}
+                  onChange={(e) => setForm({ ...form, fabricante: e.target.value })}
+                />
+              </Campo>
             </div>
 
             <Campo label="Contenido">
@@ -630,13 +686,36 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                 />
               </Campo>
             </div>
-            <Campo label="Código de proveedor">
-              <input
-                className="input"
-                value={form.codigoProveedor}
-                onChange={(e) => setForm({ ...form, codigoProveedor: e.target.value })}
-              />
-            </Campo>
+            <div className="grid grid-cols-2 gap-4">
+              <Campo label="Código de proveedor">
+                <input
+                  className="input"
+                  value={form.codigoProveedor}
+                  onChange={(e) => setForm({ ...form, codigoProveedor: e.target.value })}
+                />
+              </Campo>
+              <Campo label="Distribuidor">
+                <input
+                  className="input"
+                  value={form.distribuidor}
+                  onChange={(e) => setForm({ ...form, distribuidor: e.target.value })}
+                />
+              </Campo>
+              <Campo label="Lote">
+                <input
+                  className="input"
+                  value={form.loteCatalogo}
+                  onChange={(e) => setForm({ ...form, loteCatalogo: e.target.value })}
+                />
+              </Campo>
+              <Campo label="Lote 2">
+                <input
+                  className="input"
+                  value={form.loteCatalogo2}
+                  onChange={(e) => setForm({ ...form, loteCatalogo2: e.target.value })}
+                />
+              </Campo>
+            </div>
           </div>
 
           <div className="mt-6 flex items-center gap-4">

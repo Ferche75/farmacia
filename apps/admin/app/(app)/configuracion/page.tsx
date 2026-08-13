@@ -1,7 +1,9 @@
 import { requirePerfilAdmin } from "@/lib/dal";
 import { createServerClient } from "@farmacia/db/server";
+import { VENCIMIENTO_SEMAFORO_DEFAULT, type ConfigOperativaEmpresa } from "@farmacia/db";
 import { ConfiguracionForm } from "./configuracion-form";
 import { SucursalesBodegas } from "./sucursales-bodegas";
+import { ConfigOperativa } from "./config-operativa";
 
 export const dynamic = "force-dynamic";
 
@@ -15,11 +17,32 @@ export default async function ConfiguracionPage() {
   // 2026-08-09).
   const { data: empresa, error } = await supabase
     .from("empresas")
-    .select("nombre, telefono, email, direccion, ciudad, contacto_emergencia_nombre, contacto_emergencia_telefono")
+    .select(
+      "nombre, telefono, email, direccion, ciudad, contacto_emergencia_nombre, contacto_emergencia_telefono, config"
+    )
     .eq("id", perfil.empresaId)
     .single();
 
   if (error) throw new Error(`No se pudo cargar la empresa: ${error.message}`);
+
+  // `config` es jsonb libre — las claves que nos importan pueden no
+  // existir todavía (empresa que nunca guardó esta sección), de ahí los
+  // fallbacks. Ver actualizar_config_operativa_empresa (RPC) para el
+  // shape que se guarda.
+  const configRaw = (empresa.config ?? {}) as Record<string, unknown>;
+  const semaforoRaw = configRaw.vencimiento_semaforo as
+    | { rojo_dias?: number; amarillo_dias?: number; verde_dias?: number }
+    | undefined;
+  const configOperativa: ConfigOperativaEmpresa = {
+    camposRequeridosImportacion: Array.isArray(configRaw.campos_requeridos_importacion)
+      ? (configRaw.campos_requeridos_importacion as string[])
+      : [],
+    vencimientoSemaforo: {
+      rojoDias: semaforoRaw?.rojo_dias ?? VENCIMIENTO_SEMAFORO_DEFAULT.rojoDias,
+      amarilloDias: semaforoRaw?.amarillo_dias ?? VENCIMIENTO_SEMAFORO_DEFAULT.amarilloDias,
+      verdeDias: semaforoRaw?.verde_dias ?? VENCIMIENTO_SEMAFORO_DEFAULT.verdeDias,
+    },
+  };
 
   const { data: sucursales, error: errorSucursales } = await supabase
     .from("sucursales")
@@ -46,6 +69,9 @@ export default async function ConfiguracionPage() {
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
         <ConfiguracionForm empresa={empresa} />
         <SucursalesBodegas empresaId={perfil.empresaId} sucursales={sucursales ?? []} bodegas={bodegas ?? []} />
+      </div>
+      <div className="mt-8">
+        <ConfigOperativa config={configOperativa} />
       </div>
     </div>
   );

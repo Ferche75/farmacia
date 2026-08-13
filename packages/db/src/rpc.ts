@@ -224,6 +224,44 @@ export async function actualizarDatosContactoEmpresa(
   return data as unknown as { empresa_id: string };
 }
 
+export interface VencimientoSemaforo {
+  rojoDias: number;
+  amarilloDias: number;
+  verdeDias: number;
+}
+
+/** Default de fábrica (1/3/6 meses) — se usa mientras la empresa no
+ * haya guardado nada todavía en `empresas.config.vencimiento_semaforo`. */
+export const VENCIMIENTO_SEMAFORO_DEFAULT: VencimientoSemaforo = {
+  rojoDias: 30,
+  amarilloDias: 90,
+  verdeDias: 180,
+};
+
+export interface ConfigOperativaEmpresa {
+  camposRequeridosImportacion: string[];
+  vencimientoSemaforo: VencimientoSemaforo;
+}
+
+/** Igual que actualizarDatosContactoEmpresa: RPC SECURITY DEFINER, nunca
+ * un patrón de lectura+spread en JS (ese solo funciona para superadmin,
+ * que ya tiene UPDATE completo sobre `empresas`). Guarda las 2 secciones
+ * juntas porque viven en la misma pantalla de /configuracion. */
+export async function actualizarConfigOperativaEmpresa(
+  supabase: SupabaseClient<Database>,
+  config: ConfigOperativaEmpresa
+): Promise<{ empresa_id: string }> {
+  const { data, error } = await supabase.rpc("actualizar_config_operativa_empresa", {
+    p_campos_requeridos_importacion: config.camposRequeridosImportacion,
+    p_vencimiento_rojo_dias: config.vencimientoSemaforo.rojoDias,
+    p_vencimiento_amarillo_dias: config.vencimientoSemaforo.amarilloDias,
+    p_vencimiento_verde_dias: config.vencimientoSemaforo.verdeDias,
+  });
+
+  if (error) throw error;
+  return data as unknown as { empresa_id: string };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Importación de catálogo (Fase 2)
 // ═══════════════════════════════════════════════════════════════
@@ -250,6 +288,16 @@ export interface FilaImportacion {
    * todo el archivo. Para archivos que mezclan varios proveedores (ver
    * 20260812000001_importacion_multilab_y_sin_codigo.sql). */
   laboratorio?: string;
+  /** Del producto (global) — mismo criterio que laboratorio. */
+  fabricante?: string;
+  /** De la relación empresa-producto (como codigoProveedor) — dos
+   * empresas pueden recibir el mismo producto de distribuidores
+   * distintos. */
+  distribuidor?: string;
+  /** Dato ESTÁTICO del catálogo, no el lote dinámico que ya trackean
+   * escaneos/lotes por conteo (confirmado con el usuario). */
+  loteCatalogo?: string;
+  loteCatalogo2?: string;
   costo?: string | number;
   precio?: string | number;
 }
@@ -297,6 +345,10 @@ function filaImportacionAPayload(f: FilaImportacion): Json {
     categoria: f.categoria ?? null,
     codigo_proveedor: f.codigoProveedor ?? null,
     laboratorio: f.laboratorio ?? null,
+    fabricante: f.fabricante ?? null,
+    distribuidor: f.distribuidor ?? null,
+    lote_catalogo: f.loteCatalogo ?? null,
+    lote_catalogo_2: f.loteCatalogo2 ?? null,
     costo: f.costo ?? null,
     precio: f.precio ?? null,
   };

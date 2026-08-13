@@ -24,6 +24,10 @@ export const CAMPOS_SISTEMA = [
   { campo: "categoria", label: "Categoría / línea", requerido: false },
   { campo: "codigoProveedor", label: "Código de proveedor", requerido: false },
   { campo: "laboratorio", label: "Laboratorio (si el archivo mezcla varios)", requerido: false },
+  { campo: "fabricante", label: "Fabricante", requerido: false },
+  { campo: "distribuidor", label: "Distribuidor", requerido: false },
+  { campo: "loteCatalogo", label: "Lote", requerido: false },
+  { campo: "loteCatalogo2", label: "Lote 2", requerido: false },
   { campo: "costo", label: "Costo", requerido: false },
   { campo: "precio", label: "Precio", requerido: false },
 ] as const;
@@ -44,6 +48,10 @@ export const MAPEO_VACIO: MapeoColumnas = {
   categoria: "",
   codigoProveedor: "",
   laboratorio: "",
+  fabricante: "",
+  distribuidor: "",
+  loteCatalogo: "",
+  loteCatalogo2: "",
   costo: "",
   precio: "",
 };
@@ -64,6 +72,10 @@ const SINONIMOS: Partial<Record<CampoSistema, string[]>> = {
     "codbarras", "barcode", "ean", "ean13", "gtin", "codigo",
   ],
   laboratorio: ["laboratorio", "lab"],
+  fabricante: ["fabricante", "manufacturer", "manufactura"],
+  distribuidor: ["distribuidor", "distributor"],
+  loteCatalogo: ["lote"],
+  loteCatalogo2: ["lote2", "lotedos", "loteb"],
   nombre: ["itemname", "nombre", "producto", "nombreproducto", "articulo", "item"],
   principioActivo: ["principioactivo", "principio", "pa", "dci"],
   concentracion: ["concentracion", "concentration", "dosis"],
@@ -75,8 +87,9 @@ const SINONIMOS: Partial<Record<CampoSistema, string[]>> = {
 };
 
 const ORDEN_AUTOMAPEO: CampoSistema[] = [
-  "codigoProveedor", "codigoBarra", "laboratorio", "nombre", "principioActivo",
-  "concentracion", "contenido", "unidad", "categoria", "costo", "precio",
+  "codigoProveedor", "codigoBarra", "laboratorio", "fabricante", "distribuidor", "nombre",
+  "principioActivo", "concentracion", "contenido", "unidad", "categoria",
+  "loteCatalogo2", "loteCatalogo", "costo", "precio",
 ];
 
 function normalizarHeader(s: string): string {

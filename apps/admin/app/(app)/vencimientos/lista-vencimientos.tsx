@@ -8,6 +8,12 @@ interface LoteFila {
   productoNombre: string;
 }
 
+interface UmbralSemaforo {
+  rojoDias: number;
+  amarilloDias: number;
+  verdeDias: number;
+}
+
 function diasRestantes(vencimiento: string): number {
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
@@ -15,7 +21,7 @@ function diasRestantes(vencimiento: string): number {
   return Math.round((fecha.getTime() - hoy.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-function EstadoVencimiento({ dias }: { dias: number }) {
+function EstadoVencimiento({ dias, umbral }: { dias: number; umbral: UmbralSemaforo }) {
   if (dias < 0) {
     return (
       <span className="inline-flex items-center gap-1.5 text-danger">
@@ -24,7 +30,7 @@ function EstadoVencimiento({ dias }: { dias: number }) {
       </span>
     );
   }
-  if (dias <= 90) {
+  if (dias <= umbral.rojoDias) {
     return (
       <span className="inline-flex items-center gap-1.5 text-danger">
         <span className="h-1.5 w-1.5 rounded-full bg-danger" />
@@ -32,7 +38,7 @@ function EstadoVencimiento({ dias }: { dias: number }) {
       </span>
     );
   }
-  if (dias <= 180) {
+  if (dias <= umbral.amarilloDias) {
     return (
       <span className="inline-flex items-center gap-1.5 text-warn">
         <span className="h-1.5 w-1.5 rounded-full bg-warn" />
@@ -40,10 +46,18 @@ function EstadoVencimiento({ dias }: { dias: number }) {
       </span>
     );
   }
+  if (dias <= umbral.verdeDias) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-ok">
+        <span className="h-1.5 w-1.5 rounded-full bg-ok" />
+        en {dias}d
+      </span>
+    );
+  }
   return <span className="text-muted">en {dias}d</span>;
 }
 
-export function ListaVencimientos({ lotes }: { lotes: LoteFila[] }) {
+export function ListaVencimientos({ lotes, umbral }: { lotes: LoteFila[]; umbral: UmbralSemaforo }) {
   if (lotes.length === 0) {
     return <p className="text-sm text-muted">Todavía no hay lotes con vencimiento registrado.</p>;
   }
@@ -72,7 +86,7 @@ export function ListaVencimientos({ lotes }: { lotes: LoteFila[] }) {
               <td className="px-4 py-2.5 text-ink">{l.cantidad}</td>
               <td className="px-4 py-2.5 text-muted">{new Date(l.vencimiento).toLocaleDateString("es-BO")}</td>
               <td className="px-4 py-2.5">
-                <EstadoVencimiento dias={diasRestantes(l.vencimiento)} />
+                <EstadoVencimiento dias={diasRestantes(l.vencimiento)} umbral={umbral} />
               </td>
             </tr>
           ))}

@@ -14,6 +14,7 @@ interface ProductoFila {
   contenido: number | null;
   unidad: string | null;
   categoria: string | null;
+  fabricante: string | null;
   requiere_receta: boolean;
   controlado: boolean;
   origen: string;
@@ -35,6 +36,9 @@ interface PrecioFila {
   precio: number | null;
   stock_minimo: number | null;
   codigo_proveedor: string | null;
+  distribuidor: string | null;
+  lote_catalogo: string | null;
+  lote_catalogo_2: string | null;
 }
 
 // PostgREST devuelve como mucho 1000 filas por consulta (límite del lado
@@ -47,7 +51,7 @@ export async function exportarCatalogoCompleto(supabase: Supabase, empresaId: st
     const { data, error } = await supabase
       .from("productos")
       .select(
-        "id, nombre, principio_activo, concentracion, forma, contenido, unidad, categoria, requiere_receta, controlado, origen, activo, laboratorios(nombre)"
+        "id, nombre, principio_activo, concentracion, forma, contenido, unidad, categoria, fabricante, requiere_receta, controlado, origen, activo, laboratorios(nombre)"
       )
       .order("nombre")
       .range(desde, desde + TAMANO_PAGINA - 1);
@@ -72,7 +76,7 @@ export async function exportarCatalogoCompleto(supabase: Supabase, empresaId: st
   for (let desde = 0; ; desde += TAMANO_PAGINA) {
     const { data, error } = await supabase
       .from("productos_empresa")
-      .select("producto_id, costo, precio, stock_minimo, codigo_proveedor")
+      .select("producto_id, costo, precio, stock_minimo, codigo_proveedor, distribuidor, lote_catalogo, lote_catalogo_2")
       .eq("empresa_id", empresaId)
       .range(desde, desde + TAMANO_PAGINA - 1);
     if (error) throw new Error(error.message);
@@ -103,6 +107,7 @@ export async function exportarCatalogoCompleto(supabase: Supabase, empresaId: st
         Contenido: p.contenido ?? "",
         Unidad: p.unidad ?? "",
         Categoría: p.categoria ?? "",
+        Fabricante: p.fabricante ?? "",
         "Requiere receta": p.requiere_receta ? "sí" : "no",
         Controlado: p.controlado ? "sí" : "no",
         Origen: p.origen,
@@ -112,6 +117,9 @@ export async function exportarCatalogoCompleto(supabase: Supabase, empresaId: st
         "Precio (Bs)": pe?.precio ?? "",
         "Stock mínimo": pe?.stock_minimo ?? "",
         "Código de proveedor": pe?.codigo_proveedor ?? "",
+        Distribuidor: pe?.distribuidor ?? "",
+        Lote: pe?.lote_catalogo ?? "",
+        "Lote 2": pe?.lote_catalogo_2 ?? "",
       };
     })
   );

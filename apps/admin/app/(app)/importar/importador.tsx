@@ -11,7 +11,13 @@ import {
   type Json,
   type ResultadoPrevisualizacion,
 } from "@farmacia/db";
-import { CAMPOS_SISTEMA, MAPEO_VACIO, autoMapearColumnas, type MapeoColumnas } from "@/lib/campos-sistema";
+import {
+  CAMPOS_SISTEMA,
+  MAPEO_VACIO,
+  autoMapearColumnas,
+  type MapeoColumnas,
+  type CampoSistema,
+} from "@/lib/campos-sistema";
 import { parseArchivo, aplicarMapeo, trocear, type ArchivoParseado } from "@/lib/importacion";
 
 type Paso = "laboratorio" | "mapeo" | "preview" | "confirmando" | "listo";
@@ -45,9 +51,11 @@ interface Progreso {
 export function Importador({
   empresaId,
   sucursales,
+  camposRequeridos,
 }: {
   empresaId: string;
   sucursales: SucursalOpcion[];
+  camposRequeridos: string[];
 }) {
   const supabase = useMemo(() => createBrowserClient(), []);
 
@@ -59,6 +67,10 @@ export function Importador({
   const [nombreArchivo, setNombreArchivo] = useState("");
   const [mapeo, setMapeo] = useState<MapeoColumnas>(MAPEO_VACIO);
   const [mapeosGuardados, setMapeosGuardados] = useState<MapeoGuardado[]>([]);
+  // Orden de las filas del paso "Mapeo" — separado de CAMPOS_SISTEMA para
+  // que el usuario lo pueda acomodar como venga el archivo (↑/↓ más
+  // abajo). Solo dura la sesión, no se persiste entre importaciones.
+  const [ordenCampos, setOrdenCampos] = useState(() => CAMPOS_SISTEMA.map((c) => c.campo));
   const [preview, setPreview] = useState<ResultadoPrevisualizacion | null>(null);
   const [progreso, setProgreso] = useState<Progreso | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -78,8 +90,25 @@ export function Importador({
       });
   }, [supabase]);
 
-  const camposFaltantes = CAMPOS_SISTEMA.filter((c) => c.requerido && !mapeo[c.campo]);
+  // "nombre" siempre es obligatorio (lo exige el match-por-nombre sin
+  // código) — el resto lo decide cada empresa desde /configuracion.
+  const esRequerido = (campo: string) => campo === "nombre" || camposRequeridos.includes(campo);
+  const camposFaltantes = CAMPOS_SISTEMA.filter((c) => esRequerido(c.campo) && !mapeo[c.campo]);
+  const filasOrdenadas = ordenCampos
+    .map((campo) => CAMPOS_SISTEMA.find((c) => c.campo === campo))
+    .filter((c): c is (typeof CAMPOS_SISTEMA)[number] => c !== undefined);
   const pasoIndex = paso === "confirmando" ? 2 : PASOS.findIndex((p) => p.paso === paso);
+
+  function moverCampo(campo: CampoSistema, direccion: -1 | 1) {
+    setOrdenCampos((prev) => {
+      const i = prev.indexOf(campo);
+      const j = i + direccion;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const nuevo = [...prev];
+      [nuevo[i], nuevo[j]] = [nuevo[j], nuevo[i]];
+      return nuevo;
+    });
+  }
 
   async function onArchivoElegido(file: File) {
     setError(null);
@@ -203,6 +232,7 @@ export function Importador({
     setArchivo(null);
     setNombreArchivo("");
     setMapeo(MAPEO_VACIO);
+    setOrdenCampos(CAMPOS_SISTEMA.map((c) => c.campo));
     setPreview(null);
     setProgreso(null);
     setError(null);
@@ -344,16 +374,17 @@ export function Importador({
               <tr className="text-left text-muted">
                 <th className="pb-2 font-medium">Campo del sistema</th>
                 <th className="pb-2 font-medium">Columna del archivo</th>
+                <th className="pb-2 font-medium"></th>
               </tr>
             </thead>
             <tbody>
-              {CAMPOS_SISTEMA.map((c) => (
+              {filasOrdenadas.map((c, i) => (
                 <tr key={c.campo} className="border-t border-line">
                   <td className="py-2 pr-4 text-ink">
                     {c.label}
-                    {c.requerido && <span className="text-danger"> *</span>}
+                    {esRequerido(c.campo) && <span className="text-danger"> *</span>}
                   </td>
-                  <td className="py-2">
+                  <td className="py-2 pr-2">
                     <select
                       className="w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-ink outline-none focus:border-brand"
                       value={mapeo[c.campo]}
@@ -366,6 +397,26 @@ export function Importador({
                         </option>
                       ))}
                     </select>
+                  </td>
+                  <td className="py-2 whitespace-nowrap text-muted">
+                    <button
+                      type="button"
+                      onClick={() => moverCampo(c.campo, -1)}
+                      disabled={i === 0}
+                      className="px-1 disabled:opacity-30"
+                      aria-label={`Mover ${c.label} arriba`}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moverCampo(c.campo, 1)}
+                      disabled={i === filasOrdenadas.length - 1}
+                      className="px-1 disabled:opacity-30"
+                      aria-label={`Mover ${c.label} abajo`}
+                    >
+                      ↓
+                    </button>
                   </td>
                 </tr>
               ))}

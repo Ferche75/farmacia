@@ -151,6 +151,7 @@ export interface Database {
           origen: "manual" | "ia" | "importado";
           activo: boolean;
           categoria: string | null;
+          fabricante: string | null;
           creado_por: string | null;
           actualizado_por: string | null;
           created_at: string;
@@ -170,6 +171,7 @@ export interface Database {
           origen?: "manual" | "ia" | "importado";
           activo?: boolean;
           categoria?: string | null;
+          fabricante?: string | null;
           creado_por?: string | null;
           actualizado_por?: string | null;
           created_at?: string;
@@ -224,6 +226,9 @@ export interface Database {
           precio: number | null;
           stock_minimo: number | null;
           codigo_proveedor: string | null;
+          distribuidor: string | null;
+          lote_catalogo: string | null;
+          lote_catalogo_2: string | null;
           activo: boolean;
         };
         Insert: {
@@ -233,6 +238,9 @@ export interface Database {
           precio?: number | null;
           stock_minimo?: number | null;
           codigo_proveedor?: string | null;
+          distribuidor?: string | null;
+          lote_catalogo?: string | null;
+          lote_catalogo_2?: string | null;
           activo?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["productos_empresa"]["Insert"]>;
@@ -566,6 +574,15 @@ export interface Database {
           p_ciudad: string | null;
           p_contacto_emergencia_nombre: string | null;
           p_contacto_emergencia_telefono: string | null;
+        };
+        Returns: Json;
+      };
+      actualizar_config_operativa_empresa: {
+        Args: {
+          p_campos_requeridos_importacion: string[] | null;
+          p_vencimiento_rojo_dias: number;
+          p_vencimiento_amarillo_dias: number;
+          p_vencimiento_verde_dias: number;
         };
         Returns: Json;
       };

@@ -112,6 +112,10 @@ export function aplicarMapeo(
       categoria: mapeo.categoria ? fila[mapeo.categoria] : undefined,
       codigoProveedor: mapeo.codigoProveedor ? fila[mapeo.codigoProveedor] : undefined,
       laboratorio: mapeo.laboratorio ? fila[mapeo.laboratorio] : undefined,
+      fabricante: mapeo.fabricante ? fila[mapeo.fabricante] : undefined,
+      distribuidor: mapeo.distribuidor ? fila[mapeo.distribuidor] : undefined,
+      loteCatalogo: mapeo.loteCatalogo ? fila[mapeo.loteCatalogo] : undefined,
+      loteCatalogo2: mapeo.loteCatalogo2 ? fila[mapeo.loteCatalogo2] : undefined,
       costo,
       precio,
     };
