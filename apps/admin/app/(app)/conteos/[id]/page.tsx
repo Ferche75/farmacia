@@ -16,7 +16,7 @@ export default async function ConteoDetallePage({
 
   const { data: conteo, error: errorConteo } = await supabase
     .from("conteos")
-    .select("id, nombre, estado, iniciado_at, cerrado_at, sucursales(nombre)")
+    .select("id, nombre, estado, iniciado_at, cerrado_at, sucursales(nombre), bodegas(nombre)")
     .eq("id", id)
     .maybeSingle();
 
@@ -31,6 +31,7 @@ export default async function ConteoDetallePage({
       nombre={conteo.nombre}
       estado={conteo.estado}
       sucursalNombre={(conteo.sucursales as unknown as { nombre: string } | null)?.nombre ?? "—"}
+      bodegaNombre={(conteo.bodegas as unknown as { nombre: string } | null)?.nombre ?? null}
       rol={perfil.rol}
     />
   );

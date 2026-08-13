@@ -10,7 +10,7 @@ export default async function ConteosPage() {
 
   const { data: conteos } = await supabase
     .from("conteos")
-    .select("id, nombre, estado, iniciado_at, cerrado_at, sucursal_id, sucursales(nombre)")
+    .select("id, nombre, estado, iniciado_at, cerrado_at, sucursal_id, sucursales(nombre), bodegas(nombre)")
     .order("iniciado_at", { ascending: false });
 
   return (
@@ -28,6 +28,7 @@ export default async function ConteosPage() {
           iniciadoAt: c.iniciado_at,
           cerradoAt: c.cerrado_at,
           sucursalNombre: (c.sucursales as unknown as { nombre: string } | null)?.nombre ?? "—",
+          bodegaNombre: (c.bodegas as unknown as { nombre: string } | null)?.nombre ?? null,
         }))}
       />
     </div>

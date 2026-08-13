@@ -190,6 +190,41 @@ export async function cerrarConteo(
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Autoservicio de datos de empresa (admin/gerente)
+// ═══════════════════════════════════════════════════════════════
+
+export interface DatosContactoEmpresa {
+  nombre: string;
+  telefono: string | null;
+  email: string | null;
+  direccion: string | null;
+  ciudad: string | null;
+  contactoEmergenciaNombre: string | null;
+  contactoEmergenciaTelefono: string | null;
+}
+
+/** Único camino de escritura no-superadmin sobre `empresas` — el RPC
+ * (SECURITY DEFINER) ni siquiera acepta nit/pais/config/activo como
+ * argumento, así que no hay payload posible que toque esos campos. */
+export async function actualizarDatosContactoEmpresa(
+  supabase: SupabaseClient<Database>,
+  datos: DatosContactoEmpresa
+): Promise<{ empresa_id: string }> {
+  const { data, error } = await supabase.rpc("actualizar_datos_contacto_empresa", {
+    p_nombre: datos.nombre,
+    p_telefono: datos.telefono,
+    p_email: datos.email,
+    p_direccion: datos.direccion,
+    p_ciudad: datos.ciudad,
+    p_contacto_emergencia_nombre: datos.contactoEmergenciaNombre,
+    p_contacto_emergencia_telefono: datos.contactoEmergenciaTelefono,
+  });
+
+  if (error) throw error;
+  return data as unknown as { empresa_id: string };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Importación de catálogo (Fase 2)
 // ═══════════════════════════════════════════════════════════════
 

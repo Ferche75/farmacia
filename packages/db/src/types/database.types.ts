@@ -258,6 +258,7 @@ export interface Database {
           id: string;
           empresa_id: string;
           sucursal_id: string;
+          bodega_id: string | null;
           nombre: string;
           tipo: "total" | "parcial";
           estado: "abierto" | "cerrado";
@@ -270,6 +271,7 @@ export interface Database {
           id?: string;
           empresa_id: string;
           sucursal_id: string;
+          bodega_id?: string | null;
           nombre: string;
           tipo?: "total" | "parcial";
           estado?: "abierto" | "cerrado";
@@ -292,6 +294,13 @@ export interface Database {
             columns: ["sucursal_id"];
             isOneToOne: false;
             referencedRelation: "sucursales";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "conteos_bodega_id_fkey";
+            columns: ["bodega_id"];
+            isOneToOne: false;
+            referencedRelation: "bodegas";
             referencedColumns: ["id"];
           },
         ];
@@ -429,6 +438,7 @@ export interface Database {
           id: string;
           empresa_id: string;
           sucursal_id: string;
+          bodega_id: string | null;
           producto_id: string;
           lote: string | null;
           vencimiento: string;
@@ -440,6 +450,7 @@ export interface Database {
           id?: string;
           empresa_id: string;
           sucursal_id: string;
+          bodega_id?: string | null;
           producto_id: string;
           lote?: string | null;
           vencimiento: string;
@@ -461,6 +472,13 @@ export interface Database {
             columns: ["sucursal_id"];
             isOneToOne: false;
             referencedRelation: "sucursales";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "lotes_bodega_id_fkey";
+            columns: ["bodega_id"];
+            isOneToOne: false;
+            referencedRelation: "bodegas";
             referencedColumns: ["id"];
           },
           {
@@ -537,6 +555,18 @@ export interface Database {
       };
       comparar_conteo: {
         Args: { p_conteo_id: string };
+        Returns: Json;
+      };
+      actualizar_datos_contacto_empresa: {
+        Args: {
+          p_nombre: string;
+          p_telefono: string | null;
+          p_email: string | null;
+          p_direccion: string | null;
+          p_ciudad: string | null;
+          p_contacto_emergencia_nombre: string | null;
+          p_contacto_emergencia_telefono: string | null;
+        };
         Returns: Json;
       };
       iniciar_importacion: {

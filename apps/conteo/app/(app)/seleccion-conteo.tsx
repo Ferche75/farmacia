@@ -8,6 +8,12 @@ import type { SucursalOpcion } from "./conteo-app";
 interface ConteoAbierto {
   id: string;
   nombre: string;
+  bodegaNombre: string | null;
+}
+
+interface BodegaOpcion {
+  id: string;
+  nombre: string;
 }
 
 export function SeleccionConteo({
@@ -24,6 +30,8 @@ export function SeleccionConteo({
   const supabase = useMemo(() => createBrowserClient(), []);
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? "");
   const [abiertos, setAbiertos] = useState<ConteoAbierto[]>([]);
+  const [bodegas, setBodegas] = useState<BodegaOpcion[]>([]);
+  const [bodegaId, setBodegaId] = useState("");
   const [nombreNuevo, setNombreNuevo] = useState("");
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,12 +40,45 @@ export function SeleccionConteo({
     if (!sucursalId) return;
     supabase
       .from("conteos")
-      .select("id, nombre")
+      .select("id, nombre, bodegas(nombre)")
       .eq("sucursal_id", sucursalId)
       .eq("estado", "abierto")
       .order("iniciado_at", { ascending: false })
-      .then(({ data }) => setAbiertos(data ?? []));
+      .then(({ data }) => {
+        setAbiertos(
+          (data ?? []).map((c) => ({
+            id: c.id,
+            nombre: c.nombre,
+            bodegaNombre: (c.bodegas as unknown as { nombre: string } | null)?.nombre ?? null,
+          }))
+        );
+      });
   }, [sucursalId, supabase]);
+
+  // Bodega es una subdivisión OPCIONAL de la sucursal — la mayoría de las
+  // empresas no tiene ninguna cargada, así que este selector solo aparece
+  // cuando `bodegas` trae algo (ver el render más abajo).
+  useEffect(() => {
+    if (!sucursalId) return;
+    supabase
+      .from("bodegas")
+      .select("id, nombre")
+      .eq("sucursal_id", sucursalId)
+      .eq("activo", true)
+      .order("nombre")
+      .then(({ data }) => setBodegas(data ?? []));
+  }, [sucursalId, supabase]);
+
+  // Resetear la bodega elegida al cambiar de sucursal es un ajuste de
+  // estado derivado de un cambio de prop/estado, no una sincronización
+  // con un sistema externo — se hace durante el render, no en un efecto
+  // (mismo patrón que ya usa el panel de superadmin para separar esto de
+  // un setState asincrónico real).
+  const [sucursalVista, setSucursalVista] = useState(sucursalId);
+  if (sucursalId !== sucursalVista) {
+    setSucursalVista(sucursalId);
+    setBodegaId("");
+  }
 
   function metaBase(conteoId: string, nombre: string): MetaConteo {
     return {
@@ -58,7 +99,13 @@ export function SeleccionConteo({
       const nombre = nombreNuevo.trim() || `Conteo ${new Date().toLocaleDateString("es-BO")}`;
       const { data, error: err } = await supabase
         .from("conteos")
-        .insert({ empresa_id: empresaId, sucursal_id: sucursalId, nombre, iniciado_por: perfilId })
+        .insert({
+          empresa_id: empresaId,
+          sucursal_id: sucursalId,
+          bodega_id: bodegaId || null,
+          nombre,
+          iniciado_por: perfilId,
+        })
         .select("id, nombre")
         .single();
       if (err) throw err;
@@ -110,6 +157,26 @@ export function SeleccionConteo({
         </select>
       )}
 
+      {bodegas.length > 0 && (
+        <>
+          <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted">
+            Bodega
+          </label>
+          <select
+            value={bodegaId}
+            onChange={(e) => setBodegaId(e.target.value)}
+            className="mb-7 w-full rounded-md border border-line bg-ink-2 px-4 py-3.5 text-base text-paper outline-none focus:border-brand"
+          >
+            <option value="">— Toda la sucursal —</option>
+            {bodegas.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.nombre}
+              </option>
+            ))}
+          </select>
+        </>
+      )}
+
       {abiertos.length > 0 && (
         <div className="mb-7">
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
@@ -125,6 +192,7 @@ export function SeleccionConteo({
                 <span className="flex items-center gap-2.5">
                   <span className="h-2 w-2 shrink-0 rounded-full bg-found" />
                   {c.nombre}
+                  {c.bodegaNombre && <span className="text-muted">· {c.bodegaNombre}</span>}
                 </span>
                 <span className="text-muted">→</span>
               </button>

@@ -9,12 +9,14 @@ export function DetalleConteo({
   nombre,
   estado: estadoInicial,
   sucursalNombre,
+  bodegaNombre,
   rol,
 }: {
   conteoId: string;
   nombre: string;
   estado: string;
   sucursalNombre: string;
+  bodegaNombre: string | null;
   rol: Rol;
 }) {
   const [estado, setEstado] = useState(estadoInicial);
@@ -59,7 +61,8 @@ export function DetalleConteo({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">{nombre}</h1>
           <p className="mt-1 text-sm text-muted">
-            {sucursalNombre} ·{" "}
+            {sucursalNombre}
+            {bodegaNombre && ` · ${bodegaNombre}`} ·{" "}
             {estado === "abierto" ? (
               <span className="inline-flex items-center gap-1.5 text-ok">
                 <span className="h-1.5 w-1.5 rounded-full bg-ok" />

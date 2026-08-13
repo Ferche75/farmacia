@@ -4,6 +4,7 @@ interface LoteFila {
   vencimiento: string;
   cantidad: number;
   sucursalNombre: string;
+  bodegaNombre: string | null;
   productoNombre: string;
 }
 
@@ -54,6 +55,7 @@ export function ListaVencimientos({ lotes }: { lotes: LoteFila[] }) {
           <tr className="border-b border-line text-left text-muted">
             <th className="px-4 py-2.5 font-medium">Producto</th>
             <th className="px-4 py-2.5 font-medium">Sucursal</th>
+            <th className="px-4 py-2.5 font-medium">Bodega</th>
             <th className="px-4 py-2.5 font-medium">Lote</th>
             <th className="px-4 py-2.5 font-medium">Cantidad</th>
             <th className="px-4 py-2.5 font-medium">Vencimiento</th>
@@ -65,6 +67,7 @@ export function ListaVencimientos({ lotes }: { lotes: LoteFila[] }) {
             <tr key={l.id} className="border-b border-line last:border-0 hover:bg-paper">
               <td className="px-4 py-2.5 text-ink">{l.productoNombre}</td>
               <td className="px-4 py-2.5 text-muted">{l.sucursalNombre}</td>
+              <td className="px-4 py-2.5 text-muted">{l.bodegaNombre ?? "—"}</td>
               <td className="px-4 py-2.5 text-muted">{l.lote || "—"}</td>
               <td className="px-4 py-2.5 text-ink">{l.cantidad}</td>
               <td className="px-4 py-2.5 text-muted">{new Date(l.vencimiento).toLocaleDateString("es-BO")}</td>

@@ -15,7 +15,7 @@ export default async function VencimientosPage() {
   // nada a esta vista.
   const { data: lotes } = await supabase
     .from("lotes")
-    .select("id, lote, vencimiento, cantidad, sucursales(nombre), productos(nombre)")
+    .select("id, lote, vencimiento, cantidad, sucursales(nombre), bodegas(nombre), productos(nombre)")
     .gt("cantidad", 0)
     .order("vencimiento", { ascending: true });
 
@@ -32,6 +32,7 @@ export default async function VencimientosPage() {
           vencimiento: l.vencimiento,
           cantidad: l.cantidad,
           sucursalNombre: (l.sucursales as unknown as { nombre: string } | null)?.nombre ?? "—",
+          bodegaNombre: (l.bodegas as unknown as { nombre: string } | null)?.nombre ?? null,
           productoNombre: (l.productos as unknown as { nombre: string } | null)?.nombre ?? "—",
         }))}
       />

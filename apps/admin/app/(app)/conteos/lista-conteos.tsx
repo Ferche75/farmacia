@@ -9,6 +9,7 @@ interface ConteoFila {
   iniciadoAt: string;
   cerradoAt: string | null;
   sucursalNombre: string;
+  bodegaNombre: string | null;
 }
 
 export function ListaConteos({ conteos }: { conteos: ConteoFila[] }) {
@@ -23,6 +24,7 @@ export function ListaConteos({ conteos }: { conteos: ConteoFila[] }) {
           <tr className="border-b border-line text-left text-muted">
             <th className="px-4 py-2.5 font-medium">Nombre</th>
             <th className="px-4 py-2.5 font-medium">Sucursal</th>
+            <th className="px-4 py-2.5 font-medium">Bodega</th>
             <th className="px-4 py-2.5 font-medium">Estado</th>
             <th className="px-4 py-2.5 font-medium">Iniciado</th>
             <th className="px-4 py-2.5"></th>
@@ -33,6 +35,7 @@ export function ListaConteos({ conteos }: { conteos: ConteoFila[] }) {
             <tr key={c.id} className="border-b border-line last:border-0 hover:bg-paper">
               <td className="px-4 py-2.5 text-ink">{c.nombre}</td>
               <td className="px-4 py-2.5 text-muted">{c.sucursalNombre}</td>
+              <td className="px-4 py-2.5 text-muted">{c.bodegaNombre ?? "—"}</td>
               <td className="px-4 py-2.5">
                 {c.estado === "abierto" ? (
                   <span className="inline-flex items-center gap-1.5 text-ok">
