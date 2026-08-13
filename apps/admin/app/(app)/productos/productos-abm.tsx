@@ -167,6 +167,25 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
     setForm(FORM_VACIO);
   }
 
+  // "Duplicar como variante": en Bolivia, una presentación distinta (otros
+  // mg, otro tamaño de envase) es directamente OTRO producto con su propio
+  // código de barras — no un sub-ítem de un "producto padre". Esto solo
+  // agiliza el alta de esa variante precargando lo que casi siempre se
+  // repite (nombre, laboratorio, principio activo, categoría) y dejando en
+  // blanco lo que sí cambia (código, concentración, contenido, unidad).
+  function abrirDuplicar(p: ProductoFila) {
+    setError(null);
+    setForm({
+      ...FORM_VACIO,
+      nombre: p.nombre,
+      laboratorioNombre: p.laboratorios?.nombre ?? "",
+      principioActivo: p.principio_activo ?? "",
+      categoria: p.categoria ?? "",
+      requiereReceta: p.requiere_receta,
+      controlado: p.controlado,
+    });
+  }
+
   async function abrirEditar(p: ProductoFila) {
     setError(null);
     const { data: pe } = await supabase
@@ -384,6 +403,12 @@ export function ProductosAbm({ empresaId }: { empresaId: string }) {
                   <td className="px-4 py-2.5">
                     <button onClick={() => abrirEditar(p)} className="font-medium text-brand hover:underline">
                       Editar
+                    </button>
+                    <button
+                      onClick={() => abrirDuplicar(p)}
+                      className="ml-3 font-medium text-muted hover:text-ink hover:underline"
+                    >
+                      Duplicar
                     </button>
                   </td>
                 </tr>
