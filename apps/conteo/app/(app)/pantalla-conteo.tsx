@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createBrowserClient, cerrarConteo } from "@farmacia/db";
 import { db, type LineaLocal, type LineaDesconocidoLocal, type MetaConteo } from "@/lib/db";
 import {
   procesarEscaneo,
@@ -76,6 +77,9 @@ export function PantallaConteo({
   const [editando, setEditando] = useState<string | null>(null);
   const [valorEdicion, setValorEdicion] = useState("");
   const [subiendoFoto, setSubiendoFoto] = useState(false);
+  const [confirmandoCierre, setConfirmandoCierre] = useState(false);
+  const [cerrando, setCerrando] = useState(false);
+  const [errorCierre, setErrorCierre] = useState<string | null>(null);
 
   const refrescarLineas = useCallback(async () => {
     const todas = await db.lineas.where("conteoId").equals(meta.conteoId).toArray();
@@ -275,6 +279,43 @@ export function PantallaConteo({
     }
   }
 
+  async function abrirConfirmacionCierre() {
+    setErrorCierre(null);
+    setCerrando(true);
+    // Forzar un último intento de sync antes de dejar cerrar — cerrado
+    // el conteo en el servidor, cualquier escaneo que haya quedado en la
+    // cola local ya no se va a poder mandar nunca (registrar_escaneos_batch
+    // rechaza escrituras sobre un conteo con estado <> 'abierto').
+    await sincronizarPendientes(meta.conteoId);
+    await sincronizarDesconocidosPendientes(empresaId, meta.conteoId);
+    await refrescarPendientes();
+    const restantes = await contarPendientes(meta.conteoId);
+    setCerrando(false);
+
+    if (restantes > 0) {
+      setErrorCierre(
+        `Quedan ${restantes} escaneo(s) sin sincronizar (revisá la conexión) — no se puede cerrar hasta que se manden todos.`
+      );
+      return;
+    }
+    setConfirmandoCierre(true);
+  }
+
+  async function confirmarCierre() {
+    setCerrando(true);
+    setErrorCierre(null);
+    try {
+      const supabase = createBrowserClient();
+      await cerrarConteo(supabase, meta.conteoId);
+      setConfirmandoCierre(false);
+      onCerrarConteo();
+    } catch (e) {
+      setErrorCierre(e instanceof Error ? e.message : "No se pudo cerrar el conteo.");
+    } finally {
+      setCerrando(false);
+    }
+  }
+
   const totalUnidades =
     lineas.reduce((acc, l) => acc + l.cantidad, 0) +
     lineasDesc.reduce((acc, l) => acc + l.cantidad, 0);
@@ -406,6 +447,20 @@ export function PantallaConteo({
         </button>
       </div>
 
+      <button
+        onClick={abrirConfirmacionCierre}
+        disabled={cerrando}
+        className="mb-5 w-full rounded-md border border-notfound/40 px-4 py-3 text-sm font-medium text-notfound transition-colors hover:bg-notfound-bg disabled:opacity-50"
+      >
+        {cerrando ? "Sincronizando…" : "Cerrar conteo"}
+      </button>
+
+      {errorCierre && !confirmandoCierre && (
+        <p className="mb-5 rounded-md border border-notfound/30 bg-notfound-bg px-3.5 py-2.5 text-sm text-notfound">
+          {errorCierre}
+        </p>
+      )}
+
       {mostrarCantidadManual && (
         <div className="mb-5 space-y-2.5 rounded-lg border border-line bg-ink-2 p-3.5">
           <input
@@ -508,6 +563,44 @@ export function PantallaConteo({
           ))}
         </ul>
       </div>
+
+      {confirmandoCierre && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-6">
+          <div className="w-full max-w-sm rounded-lg border border-line bg-ink-2 p-6 shadow-xl">
+            <h2 className="mb-3 text-lg font-semibold text-paper">¿Cerrar este conteo?</h2>
+            <p className="mb-2 text-sm text-muted">
+              Quedan registradas <strong className="text-paper">{totalUnidades.toLocaleString("es-BO")}</strong>{" "}
+              unidades. Una vez cerrado no se puede volver a escanear acá.
+            </p>
+            {lineasDesc.length > 0 && (
+              <p className="mb-4 rounded-md border border-duplicate/30 bg-duplicate-bg px-3 py-2 text-sm text-duplicate">
+                Ojo: hay {lineasDesc.length} producto(s) sin identificar todavía.
+              </p>
+            )}
+            {errorCierre && (
+              <p className="mb-4 rounded-md border border-notfound/30 bg-notfound-bg px-3 py-2 text-sm text-notfound">
+                {errorCierre}
+              </p>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={confirmarCierre}
+                disabled={cerrando}
+                className="flex-1 rounded-md bg-notfound px-4 py-3 text-sm font-medium text-ink transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {cerrando ? "Cerrando…" : "Sí, cerrar"}
+              </button>
+              <button
+                onClick={() => setConfirmandoCierre(false)}
+                disabled={cerrando}
+                className="flex-1 rounded-md border border-line px-4 py-3 text-sm font-medium text-paper transition-colors hover:border-muted"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
