@@ -36,8 +36,13 @@ export function SucursalesBodegas({
   const supabase = useMemo(() => createBrowserClient(), []);
   const router = useRouter();
 
+  // Las dos tablas se apilan hasta 2xl y recién ahí van lado a lado. En
+  // md/lg ponerlas en dos columnas les dejaba ~300px a cada una y se
+  // rompían ("Casa matriz" en dos líneas, el botón de la última columna
+  // cortado); a pantalla completa, en cambio, entran cómodas y evitan que
+  // la tarjeta quede larguísima.
   return (
-    <div className="grid grid-cols-1 gap-6 rounded-lg border border-line bg-surface p-6 md:grid-cols-2">
+    <div className="grid gap-8 2xl:grid-cols-2 2xl:gap-8">
       <SeccionSucursales empresaId={empresaId} sucursales={sucursales} supabase={supabase} router={router} />
       <SeccionBodegas empresaId={empresaId} sucursales={sucursales} bodegas={bodegas} supabase={supabase} router={router} />
     </div>
@@ -46,6 +51,23 @@ export function SucursalesBodegas({
 
 type SupabaseClient = ReturnType<typeof createBrowserClient>;
 type Router = ReturnType<typeof useRouter>;
+
+const CLASE_BOTON_AGREGAR =
+  "shrink-0 whitespace-nowrap rounded-md border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-paper";
+
+function EstadoActivo({ activo }: { activo: boolean }) {
+  return activo ? (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-ok">
+      <span className="h-1.5 w-1.5 rounded-full bg-ok" />
+      activa
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-muted">
+      <span className="h-1.5 w-1.5 rounded-full bg-muted" />
+      inactiva
+    </span>
+  );
+}
 
 function SeccionSucursales({
   empresaId,
@@ -90,31 +112,42 @@ function SeccionSucursales({
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-ink">Sucursales</h2>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Sucursales</h3>
         <button
           onClick={() => {
             setError(null);
             setAbierto(true);
           }}
-          className="text-sm font-medium text-brand hover:underline"
+          className={CLASE_BOTON_AGREGAR}
         >
-          + Nueva
+          + Nueva sucursal
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-line bg-surface">
+      <div className="overflow-x-auto rounded-lg border border-line">
         <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-line text-left text-muted">
+              <th className="px-4 py-2.5 font-medium">Nombre</th>
+              <th className="px-4 py-2.5 font-medium">Dirección</th>
+              <th className="px-4 py-2.5 font-medium">Estado</th>
+              <th className="px-4 py-2.5"></th>
+            </tr>
+          </thead>
           <tbody>
             {sucursales.map((s) => (
-              <tr key={s.id} className="border-b border-line last:border-0">
-                <td className="px-4 py-2.5 text-ink">{s.nombre}</td>
+              <tr key={s.id} className="border-b border-line last:border-0 hover:bg-paper">
+                <td className="px-4 py-2.5 font-medium text-ink">{s.nombre}</td>
                 <td className="px-4 py-2.5 text-muted">{s.direccion ?? "—"}</td>
                 <td className="px-4 py-2.5">
-                  {s.activo ? <span className="text-ok">activa</span> : <span className="text-muted">inactiva</span>}
+                  <EstadoActivo activo={s.activo} />
                 </td>
                 <td className="px-4 py-2.5 text-right">
-                  <button onClick={() => toggleActivo(s)} className="font-medium text-brand hover:underline">
+                  <button
+                    onClick={() => toggleActivo(s)}
+                    className="whitespace-nowrap font-medium text-brand hover:underline"
+                  >
                     {s.activo ? "Desactivar" : "Activar"}
                   </button>
                 </td>
@@ -122,7 +155,9 @@ function SeccionSucursales({
             ))}
             {sucursales.length === 0 && (
               <tr>
-                <td className="px-4 py-6 text-center text-muted">Todavía no hay sucursales.</td>
+                <td colSpan={4} className="px-4 py-8 text-center text-muted">
+                  Todavía no hay sucursales.
+                </td>
               </tr>
             )}
           </tbody>
@@ -130,7 +165,7 @@ function SeccionSucursales({
       </div>
 
       {abierto && (
-        <div className="fixed inset-0 flex items-center justify-center bg-ink/40 p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-ink/40 p-6">
           <div className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-xl">
             <h2 className="mb-4 text-lg font-semibold text-ink">Nueva sucursal</h2>
 
@@ -220,32 +255,43 @@ function SeccionBodegas({
 
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-ink">Bodegas</h2>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Bodegas</h3>
         <button
           onClick={() => {
             setError(null);
             setSucursalId(sucursales[0]?.id ?? "");
             setAbierto(true);
           }}
-          className="text-sm font-medium text-brand hover:underline"
+          className={CLASE_BOTON_AGREGAR}
         >
-          + Nueva
+          + Nueva bodega
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-line bg-surface">
+      <div className="overflow-x-auto rounded-lg border border-line">
         <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-line text-left text-muted">
+              <th className="px-4 py-2.5 font-medium">Nombre</th>
+              <th className="px-4 py-2.5 font-medium">Sucursal</th>
+              <th className="px-4 py-2.5 font-medium">Estado</th>
+              <th className="px-4 py-2.5"></th>
+            </tr>
+          </thead>
           <tbody>
             {bodegas.map((b) => (
-              <tr key={b.id} className="border-b border-line last:border-0">
-                <td className="px-4 py-2.5 text-ink">{b.nombre}</td>
+              <tr key={b.id} className="border-b border-line last:border-0 hover:bg-paper">
+                <td className="px-4 py-2.5 font-medium text-ink">{b.nombre}</td>
                 <td className="px-4 py-2.5 text-muted">{nombreSucursal(b.sucursal_id)}</td>
                 <td className="px-4 py-2.5">
-                  {b.activo ? <span className="text-ok">activa</span> : <span className="text-muted">inactiva</span>}
+                  <EstadoActivo activo={b.activo} />
                 </td>
                 <td className="px-4 py-2.5 text-right">
-                  <button onClick={() => toggleActivo(b)} className="font-medium text-brand hover:underline">
+                  <button
+                    onClick={() => toggleActivo(b)}
+                    className="whitespace-nowrap font-medium text-brand hover:underline"
+                  >
                     {b.activo ? "Desactivar" : "Activar"}
                   </button>
                 </td>
@@ -253,7 +299,9 @@ function SeccionBodegas({
             ))}
             {bodegas.length === 0 && (
               <tr>
-                <td className="px-4 py-6 text-center text-muted">Todavía no hay bodegas.</td>
+                <td colSpan={4} className="px-4 py-8 text-center text-muted">
+                  Todavía no hay bodegas.
+                </td>
               </tr>
             )}
           </tbody>
@@ -261,7 +309,7 @@ function SeccionBodegas({
       </div>
 
       {abierto && (
-        <div className="fixed inset-0 flex items-center justify-center bg-ink/40 p-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-ink/40 p-6">
           <div className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-xl">
             <h2 className="mb-4 text-lg font-semibold text-ink">Nueva bodega</h2>
 
