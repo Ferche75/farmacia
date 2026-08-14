@@ -60,7 +60,7 @@ export function Importador({
   const supabase = useMemo(() => createBrowserClient(), []);
 
   const [paso, setPaso] = useState<Paso>("laboratorio");
-  const [sucursalId, setSucursalId] = useState("");
+  const [sucursalIds, setSucursalIds] = useState<string[]>([]);
   const [laboratorio, setLaboratorio] = useState("");
   const [margen, setMargen] = useState("");
   const [archivo, setArchivo] = useState<ArchivoParseado | null>(null);
@@ -202,7 +202,7 @@ export function Importador({
         supabase,
         nombreArchivo,
         mapeo as unknown as Json,
-        sucursalId || null
+        sucursalIds
       );
       const lotes = trocear(filas, TAMANO_LOTE_IMPORTACION);
 
@@ -226,7 +226,7 @@ export function Importador({
 
   function empezarDeNuevo() {
     setPaso("laboratorio");
-    setSucursalId("");
+    setSucursalIds([]);
     setLaboratorio("");
     setMargen("");
     setArchivo(null);
@@ -271,22 +271,28 @@ export function Importador({
       {paso === "laboratorio" && (
         <div className="max-w-lg space-y-4 rounded-lg border border-line bg-surface p-6">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink">Sucursal *</label>
-            <select
-              value={sucursalId}
-              onChange={(e) => setSucursalId(e.target.value)}
-              className="input"
-            >
-              <option value="">-- elegir --</option>
+            <label className="mb-1.5 block text-sm font-medium text-ink">Sucursales *</label>
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5 rounded-md border border-line px-3 py-2.5">
               {sucursales.map((s) => (
-                <option key={s.id} value={s.id}>
+                <label key={s.id} className="flex items-center gap-1.5 text-sm text-ink">
+                  <input
+                    type="checkbox"
+                    className="accent-brand"
+                    checked={sucursalIds.includes(s.id)}
+                    onChange={(e) =>
+                      setSucursalIds((prev) =>
+                        e.target.checked ? [...prev, s.id] : prev.filter((id) => id !== s.id)
+                      )
+                    }
+                  />
                   {s.nombre}
-                </option>
+                </label>
               ))}
-            </select>
+            </div>
             <p className="mt-1.5 text-xs text-muted">
-              De qué sucursal es este archivo — queda registrado en la importación. El costo/precio se guarda
-              para toda la empresa igual, no varía entre sucursales.
+              De qué sucursal(es) es este archivo — cada producto que toque la importación queda marcado como
+              disponible en todas las que elijas acá (solo informativo, ver /productos). El costo/precio se
+              guarda para toda la empresa igual, no varía entre sucursales.
             </p>
           </div>
 
@@ -351,14 +357,16 @@ export function Importador({
             <input
               type="file"
               accept=".csv,.xlsx,.xls"
-              disabled={!sucursalId || cargando}
+              disabled={sucursalIds.length === 0 || cargando}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) onArchivoElegido(file);
               }}
               className="block w-full text-sm text-ink file:mr-3 file:rounded-md file:border-0 file:bg-brand-soft file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-brand disabled:opacity-50"
             />
-            {!sucursalId && <p className="mt-1.5 text-xs text-muted">Elegí la sucursal primero.</p>}
+            {sucursalIds.length === 0 && (
+              <p className="mt-1.5 text-xs text-muted">Elegí al menos una sucursal primero.</p>
+            )}
           </div>
         </div>
       )}

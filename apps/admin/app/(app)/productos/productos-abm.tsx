@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { createBrowserClient } from "@farmacia/db";
+import { createBrowserClient, type CampoPersonalizado } from "@farmacia/db";
 import { exportarCatalogoCompleto } from "@/lib/exportar-catalogo";
 
 interface ProductoFila {
@@ -78,6 +78,7 @@ interface FormState {
   loteCatalogo: string;
   loteCatalogo2: string;
   sucursalesDisponibles: string[]; // ids de sucursal — solo informativo, ver productos_sucursales
+  camposExtra: Record<string, string>; // clave -> valor, ver campos personalizados
 }
 
 const FORM_VACIO: FormState = {
@@ -102,6 +103,7 @@ const FORM_VACIO: FormState = {
   loteCatalogo: "",
   loteCatalogo2: "",
   sucursalesDisponibles: [],
+  camposExtra: {},
 };
 
 interface LoteResumen {
@@ -115,6 +117,50 @@ interface SucursalOpcion {
 }
 
 const TAMANO_PAGINA = 50;
+
+// Todas las columnas mostrables de la tabla, aparte de Nombre y Acciones
+// (esas dos siempre van fijas). El orden acá es el default — el usuario
+// lo puede cambiar con los ↑/↓ del panel "Columnas", y la elección de
+// cuáles mostrar/ocultar y en qué orden se persiste en localStorage
+// (por navegador, no por empresa — es una preferencia de vista, no un
+// dato de negocio, no justifica una columna nueva en la base).
+const COLUMNAS_FIJAS: { id: string; label: string }[] = [
+  { id: "codigoBarra", label: "Código de barras" },
+  { id: "laboratorio", label: "Laboratorio" },
+  { id: "presentacion", label: "Presentación" },
+  { id: "concentracion", label: "Concentración" },
+  { id: "principioActivo", label: "Principio activo" },
+  { id: "categoria", label: "Categoría" },
+  { id: "fabricante", label: "Fabricante" },
+  { id: "disponibleEn", label: "Disponible en" },
+  { id: "sucursal", label: "Sucursal (vencimiento)" },
+  { id: "vencimiento", label: "Vencimiento" },
+  { id: "estado", label: "Estado" },
+];
+
+// Default deliberadamente angosto — mostrar las 11 columnas de una era
+// justamente la queja de "esto es un asco a nivel diseño". El resto
+// sigue a un click en "Columnas", no se pierde nada.
+const COLUMNAS_VISIBLES_DEFAULT = ["codigoBarra", "laboratorio", "presentacion", "estado"];
+
+const LOCALSTORAGE_KEY_COLUMNAS = "farmacia_productos_columnas_v1";
+
+function cargarPreferenciaColumnas(): { visibles: string[]; orden: string[] } {
+  const fallback = {
+    visibles: COLUMNAS_VISIBLES_DEFAULT,
+    orden: COLUMNAS_FIJAS.map((c) => c.id),
+  };
+  if (typeof window === "undefined") return fallback;
+  try {
+    const guardado = window.localStorage.getItem(LOCALSTORAGE_KEY_COLUMNAS);
+    if (!guardado) return fallback;
+    const parseado = JSON.parse(guardado);
+    if (!Array.isArray(parseado.visibles) || !Array.isArray(parseado.orden)) return fallback;
+    return parseado;
+  } catch {
+    return fallback;
+  }
+}
 
 export function ProductosAbm({
   empresaId,
@@ -130,12 +176,69 @@ export function ProductosAbm({
   const [resultados, setResultados] = useState<ProductoFila[]>([]);
   const [lotesPorProducto, setLotesPorProducto] = useState<Map<string, LoteResumen[]>>(new Map());
   const [disponiblesPorProducto, setDisponiblesPorProducto] = useState<Map<string, string[]>>(new Map());
+  const [camposExtraPorProducto, setCamposExtraPorProducto] = useState<Map<string, Record<string, string>>>(
+    new Map()
+  );
   const [sucursales, setSucursales] = useState<SucursalOpcion[]>([]);
   const [buscando, setBuscando] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
+  const [prefColumnas, setPrefColumnas] = useState(cargarPreferenciaColumnas);
+  const [panelColumnasAbierto, setPanelColumnasAbierto] = useState(false);
+  const [camposPersonalizados, setCamposPersonalizados] = useState<CampoPersonalizado[]>([]);
+
+  useEffect(() => {
+    window.localStorage.setItem(LOCALSTORAGE_KEY_COLUMNAS, JSON.stringify(prefColumnas));
+  }, [prefColumnas]);
+
+  function toggleColumna(id: string) {
+    setPrefColumnas((prev) => ({
+      ...prev,
+      visibles: prev.visibles.includes(id) ? prev.visibles.filter((c) => c !== id) : [...prev.visibles, id],
+    }));
+  }
+
+  function moverColumna(id: string, direccion: -1 | 1) {
+    setPrefColumnas((prev) => {
+      const i = prev.orden.indexOf(id);
+      const j = i + direccion;
+      if (i < 0 || j < 0 || j >= prev.orden.length) return prev;
+      const nuevoOrden = [...prev.orden];
+      [nuevoOrden[i], nuevoOrden[j]] = [nuevoOrden[j], nuevoOrden[i]];
+      return { ...prev, orden: nuevoOrden };
+    });
+  }
+
+  // Campos personalizados (ver /configuracion) se suman como columnas
+  // dinámicas más — id "custom:<clave>" para no chocar con las fijas.
+  const todasLasColumnas = useMemo(
+    () => [...COLUMNAS_FIJAS, ...camposPersonalizados.map((c) => ({ id: `custom:${c.clave}`, label: c.etiqueta }))],
+    [camposPersonalizados]
+  );
+
+  // Si aparece una columna nueva (empresa acaba de definir un campo)
+  // que el usuario todavía no tiene en su preferencia guardada, se
+  // agrega visible al final — mejor que quede oculta silenciosamente la
+  // primera vez. Es un ajuste derivado de `todasLasColumnas`, no una
+  // sincronización con algo externo, así que se resuelve durante el
+  // render (comparando contra el último valor visto) en vez de en un
+  // efecto — mismo patrón que ya usa el resto del proyecto para esto.
+  const idsColumnasConocidas = todasLasColumnas.map((c) => c.id).join(",");
+  const [idsColumnasVistos, setIdsColumnasVistos] = useState(idsColumnasConocidas);
+  if (idsColumnasVistos !== idsColumnasConocidas) {
+    setIdsColumnasVistos(idsColumnasConocidas);
+    const nuevas = todasLasColumnas.map((c) => c.id).filter((id) => !prefColumnas.orden.includes(id));
+    if (nuevas.length > 0) {
+      setPrefColumnas((prev) => ({ orden: [...prev.orden, ...nuevas], visibles: [...prev.visibles, ...nuevas] }));
+    }
+  }
+
+  const columnasActivas = prefColumnas.orden
+    .filter((id) => prefColumnas.visibles.includes(id))
+    .map((id) => todasLasColumnas.find((c) => c.id === id))
+    .filter((c): c is (typeof todasLasColumnas)[number] => c !== undefined);
 
   useEffect(() => {
     supabase
@@ -145,6 +248,16 @@ export function ProductosAbm({
       .eq("activo", true)
       .order("nombre")
       .then(({ data }) => setSucursales(data ?? []));
+
+    supabase
+      .from("empresas")
+      .select("config")
+      .eq("id", empresaId)
+      .single()
+      .then(({ data }) => {
+        const raw = (data?.config as Record<string, unknown> | null)?.campos_personalizados;
+        setCamposPersonalizados(Array.isArray(raw) ? (raw as CampoPersonalizado[]) : []);
+      });
   }, [supabase, empresaId]);
 
   async function exportarCatalogo() {
@@ -224,6 +337,24 @@ export function ProductosAbm({
       }
       setDisponiblesPorProducto(dispPorProducto);
 
+      // Campos personalizados: a diferencia de costo/precio/distribuidor
+      // (que no se muestran en esta lista, ver comentario histórico de
+      // esta pantalla), estos SÍ son "columnas" en el sentido literal que
+      // pidió el usuario — vale el round-trip extra por página.
+      const { data: extraData } = idsVisibles.length
+        ? await supabase
+            .from("productos_empresa")
+            .select("producto_id, campos_extra")
+            .eq("empresa_id", empresaId)
+            .in("producto_id", idsVisibles)
+        : { data: [] };
+
+      const extraPorProducto = new Map<string, Record<string, string>>();
+      for (const e of extraData ?? []) {
+        extraPorProducto.set(e.producto_id, (e.campos_extra as Record<string, string>) ?? {});
+      }
+      setCamposExtraPorProducto(extraPorProducto);
+
       setBuscando(false);
     }, 300);
     return () => clearTimeout(t);
@@ -264,7 +395,9 @@ export function ProductosAbm({
     setError(null);
     const { data: pe } = await supabase
       .from("productos_empresa")
-      .select("costo, precio, stock_minimo, codigo_proveedor, distribuidor, lote_catalogo, lote_catalogo_2")
+      .select(
+        "costo, precio, stock_minimo, codigo_proveedor, distribuidor, lote_catalogo, lote_catalogo_2, campos_extra"
+      )
       .eq("empresa_id", empresaId)
       .eq("producto_id", p.id)
       .maybeSingle();
@@ -298,6 +431,7 @@ export function ProductosAbm({
       loteCatalogo: pe?.lote_catalogo ?? "",
       loteCatalogo2: pe?.lote_catalogo_2 ?? "",
       sucursalesDisponibles: (disp ?? []).map((d) => d.sucursal_id),
+      camposExtra: (pe?.campos_extra as Record<string, string> | null) ?? {},
     });
   }
 
@@ -371,7 +505,8 @@ export function ProductosAbm({
         form.codigoProveedor ||
         form.distribuidor ||
         form.loteCatalogo ||
-        form.loteCatalogo2
+        form.loteCatalogo2 ||
+        Object.values(form.camposExtra).some((v) => v)
       ) {
         const { error: peErr } = await supabase.from("productos_empresa").upsert(
           {
@@ -384,6 +519,7 @@ export function ProductosAbm({
             distribuidor: form.distribuidor || null,
             lote_catalogo: form.loteCatalogo || null,
             lote_catalogo_2: form.loteCatalogo2 || null,
+            campos_extra: form.camposExtra,
           },
           { onConflict: "empresa_id,producto_id" }
         );
@@ -421,6 +557,55 @@ export function ProductosAbm({
     }
   }
 
+  function renderCelda(columnaId: string, p: ProductoFila) {
+    if (columnaId.startsWith("custom:")) {
+      const clave = columnaId.slice("custom:".length);
+      return camposExtraPorProducto.get(p.id)?.[clave] || "—";
+    }
+    switch (columnaId) {
+      case "codigoBarra":
+        return (
+          <>
+            {codigoPrincipal(p.codigos_barra) ?? "—"}
+            {p.codigos_barra.length > 1 && <span className="ml-1 text-line">+{p.codigos_barra.length - 1}</span>}
+          </>
+        );
+      case "laboratorio":
+        return p.laboratorios?.nombre ?? "—";
+      case "presentacion":
+        return p.contenido != null ? `${p.contenido} ${p.unidad ?? ""}`.trim() : "—";
+      case "concentracion":
+        return p.concentracion ?? "—";
+      case "principioActivo":
+        return p.principio_activo ?? "—";
+      case "categoria":
+        return p.categoria ?? "—";
+      case "fabricante":
+        return p.fabricante ?? "—";
+      case "disponibleEn": {
+        const disp = disponiblesPorProducto.get(p.id);
+        if (!disp || disp.length === 0) return "—";
+        return disp.length > 1 ? `${disp[0]} +${disp.length - 1}` : disp[0];
+      }
+      case "sucursal": {
+        const lotes = lotesPorProducto.get(p.id);
+        if (!lotes || lotes.length === 0) return "—";
+        const nombres = [...new Set(lotes.map((l) => l.sucursalNombre))];
+        return nombres.length > 1 ? `${nombres[0]} +${nombres.length - 1}` : nombres[0];
+      }
+      case "vencimiento": {
+        const lotes = lotesPorProducto.get(p.id);
+        if (!lotes || lotes.length === 0) return <span className="text-muted">—</span>;
+        // Ordenados por vencimiento asc en la consulta: el primero es el más próximo.
+        return <VencimientoBadge fecha={lotes[0].vencimiento} umbral={umbralVencimiento} />;
+      }
+      case "estado":
+        return p.activo ? <span className="text-ok">activo</span> : <span className="text-muted">inactivo</span>;
+      default:
+        return null;
+    }
+  }
+
   return (
     <div>
       <div className="rounded-lg border border-line bg-surface p-8">
@@ -445,10 +630,64 @@ export function ProductosAbm({
             />
           </div>
           {buscando && <span className="text-xs text-muted">buscando…</span>}
+          <div className="relative ml-auto">
+            <button
+              onClick={() => setPanelColumnasAbierto((v) => !v)}
+              className="flex items-center gap-1.5 rounded-md border border-line px-3.5 py-2 text-sm font-medium text-ink transition-colors hover:bg-paper"
+            >
+              Columnas ({columnasActivas.length}/{todasLasColumnas.length})
+            </button>
+            {panelColumnasAbierto && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setPanelColumnasAbierto(false)} />
+                <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-line bg-surface p-3 shadow-xl">
+                  <p className="mb-2 px-1 text-xs font-medium text-muted">
+                    Mostrar/ocultar y ordenar — se guarda en este navegador.
+                  </p>
+                  <ul className="max-h-80 space-y-0.5 overflow-y-auto">
+                    {prefColumnas.orden.map((id, i) => {
+                      const col = todasLasColumnas.find((c) => c.id === id);
+                      if (!col) return null;
+                      const visible = prefColumnas.visibles.includes(id);
+                      return (
+                        <li key={id} className="flex items-center gap-2 rounded px-1 py-1 hover:bg-paper">
+                          <input
+                            type="checkbox"
+                            className="accent-brand"
+                            checked={visible}
+                            onChange={() => toggleColumna(id)}
+                          />
+                          <span className={`flex-1 text-sm ${visible ? "text-ink" : "text-muted"}`}>{col.label}</span>
+                          <button
+                            type="button"
+                            onClick={() => moverColumna(id, -1)}
+                            disabled={i === 0}
+                            className="px-1 text-muted hover:text-ink disabled:opacity-30"
+                            aria-label={`Mover ${col.label} arriba`}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moverColumna(id, 1)}
+                            disabled={i === prefColumnas.orden.length - 1}
+                            className="px-1 text-muted hover:text-ink disabled:opacity-30"
+                            aria-label={`Mover ${col.label} abajo`}
+                          >
+                            ↓
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </>
+            )}
+          </div>
           <button
             onClick={exportarCatalogo}
             disabled={exportando}
-            className="ml-auto flex items-center gap-1.5 rounded-md border border-line px-3.5 py-2 text-sm font-medium text-ink transition-colors hover:bg-paper disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md border border-line px-3.5 py-2 text-sm font-medium text-ink transition-colors hover:bg-paper disabled:opacity-50"
           >
             <IconDescargar className="h-4 w-4" />
             {exportando ? "Exportando…" : "Exportar catálogo"}
@@ -469,21 +708,15 @@ export function ProductosAbm({
         )}
 
         <div className="mt-6 overflow-x-auto rounded-lg border border-line">
-          <table className="w-full min-w-[1400px] text-sm">
+          <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-muted whitespace-nowrap">
                 <th className="px-4 py-2.5 font-medium">Nombre</th>
-                <th className="px-4 py-2.5 font-medium">Código de barras</th>
-                <th className="px-4 py-2.5 font-medium">Laboratorio</th>
-                <th className="px-4 py-2.5 font-medium">Presentación</th>
-                <th className="px-4 py-2.5 font-medium">Concentración</th>
-                <th className="px-4 py-2.5 font-medium">Principio activo</th>
-                <th className="px-4 py-2.5 font-medium">Categoría</th>
-                <th className="px-4 py-2.5 font-medium">Fabricante</th>
-                <th className="px-4 py-2.5 font-medium">Disponible en</th>
-                <th className="px-4 py-2.5 font-medium">Sucursal</th>
-                <th className="px-4 py-2.5 font-medium">Vencimiento</th>
-                <th className="px-4 py-2.5 font-medium">Estado</th>
+                {columnasActivas.map((c) => (
+                  <th key={c.id} className="px-4 py-2.5 font-medium">
+                    {c.label}
+                  </th>
+                ))}
                 <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
@@ -491,46 +724,11 @@ export function ProductosAbm({
               {resultados.map((p) => (
                 <tr key={p.id} className="border-b border-line last:border-0 whitespace-nowrap hover:bg-paper">
                   <td className="px-4 py-2.5 text-ink">{p.nombre}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-muted">
-                    {codigoPrincipal(p.codigos_barra) ?? "—"}
-                    {p.codigos_barra.length > 1 && (
-                      <span className="ml-1 text-line">+{p.codigos_barra.length - 1}</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 text-muted">{p.laboratorios?.nombre ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-muted">
-                    {p.contenido != null ? `${p.contenido} ${p.unidad ?? ""}`.trim() : "—"}
-                  </td>
-                  <td className="px-4 py-2.5 text-muted">{p.concentracion ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-muted">{p.principio_activo ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-muted">{p.categoria ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-muted">{p.fabricante ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-muted">
-                    {(() => {
-                      const disp = disponiblesPorProducto.get(p.id);
-                      if (!disp || disp.length === 0) return "—";
-                      return disp.length > 1 ? `${disp[0]} +${disp.length - 1}` : disp[0];
-                    })()}
-                  </td>
-                  <td className="px-4 py-2.5 text-muted">
-                    {(() => {
-                      const lotes = lotesPorProducto.get(p.id);
-                      if (!lotes || lotes.length === 0) return "—";
-                      const sucursales = [...new Set(lotes.map((l) => l.sucursalNombre))];
-                      return sucursales.length > 1 ? `${sucursales[0]} +${sucursales.length - 1}` : sucursales[0];
-                    })()}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {(() => {
-                      const lotes = lotesPorProducto.get(p.id);
-                      if (!lotes || lotes.length === 0) return <span className="text-muted">—</span>;
-                      // Ordenados por vencimiento asc en la consulta: el primero es el más próximo.
-                      return <VencimientoBadge fecha={lotes[0].vencimiento} umbral={umbralVencimiento} />;
-                    })()}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {p.activo ? <span className="text-ok">activo</span> : <span className="text-muted">inactivo</span>}
-                  </td>
+                  {columnasActivas.map((c) => (
+                    <td key={c.id} className="px-4 py-2.5 text-muted">
+                      {renderCelda(c.id, p)}
+                    </td>
+                  ))}
                   <td className="px-4 py-2.5">
                     <button onClick={() => abrirEditar(p)} className="font-medium text-brand hover:underline">
                       Editar
@@ -546,7 +744,7 @@ export function ProductosAbm({
               ))}
               {resultados.length === 0 && !buscando && (
                 <tr>
-                  <td colSpan={13} className="py-16">
+                  <td colSpan={columnasActivas.length + 2} className="py-16">
                     <div className="flex flex-col items-center gap-3 text-center">
                       <IconCajaVacia className="h-10 w-10 text-line" />
                       <p className="font-medium text-ink">Sin resultados.</p>
@@ -794,6 +992,22 @@ export function ProductosAbm({
                 />
               </Campo>
             </div>
+
+            {camposPersonalizados.length > 0 && (
+              <div className="grid grid-cols-2 gap-4">
+                {camposPersonalizados.map((c) => (
+                  <Campo key={c.clave} label={c.etiqueta}>
+                    <input
+                      className="input"
+                      value={form.camposExtra[c.clave] ?? ""}
+                      onChange={(e) =>
+                        setForm({ ...form, camposExtra: { ...form.camposExtra, [c.clave]: e.target.value } })
+                      }
+                    />
+                  </Campo>
+                ))}
+              </div>
+            )}
 
             {sucursales.length > 0 && (
               <div>

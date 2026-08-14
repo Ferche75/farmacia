@@ -229,6 +229,7 @@ export interface Database {
           distribuidor: string | null;
           lote_catalogo: string | null;
           lote_catalogo_2: string | null;
+          campos_extra: Json;
           activo: boolean;
         };
         Insert: {
@@ -241,6 +242,7 @@ export interface Database {
           distribuidor?: string | null;
           lote_catalogo?: string | null;
           lote_catalogo_2?: string | null;
+          campos_extra?: Json;
           activo?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["productos_empresa"]["Insert"]>;
@@ -622,8 +624,12 @@ export interface Database {
         };
         Returns: Json;
       };
+      actualizar_campos_personalizados_empresa: {
+        Args: { p_campos: Json };
+        Returns: Json;
+      };
       iniciar_importacion: {
-        Args: { p_archivo: string; p_mapeo: Json; p_sucursal_id?: string | null };
+        Args: { p_archivo: string; p_mapeo: Json; p_sucursal_ids?: string[] };
         Returns: string;
       };
       previsualizar_importacion: {

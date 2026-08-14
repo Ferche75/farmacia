@@ -1,9 +1,10 @@
 import { requirePerfilAdmin } from "@/lib/dal";
 import { createServerClient } from "@farmacia/db/server";
-import { VENCIMIENTO_SEMAFORO_DEFAULT, type ConfigOperativaEmpresa } from "@farmacia/db";
+import { VENCIMIENTO_SEMAFORO_DEFAULT, type ConfigOperativaEmpresa, type CampoPersonalizado } from "@farmacia/db";
 import { ConfiguracionForm } from "./configuracion-form";
 import { SucursalesBodegas } from "./sucursales-bodegas";
 import { ConfigOperativa } from "./config-operativa";
+import { CamposPersonalizados } from "./campos-personalizados";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +44,9 @@ export default async function ConfiguracionPage() {
       verdeDias: semaforoRaw?.verde_dias ?? VENCIMIENTO_SEMAFORO_DEFAULT.verdeDias,
     },
   };
+  const camposPersonalizados: CampoPersonalizado[] = Array.isArray(configRaw.campos_personalizados)
+    ? (configRaw.campos_personalizados as CampoPersonalizado[])
+    : [];
 
   const { data: sucursales, error: errorSucursales } = await supabase
     .from("sucursales")
@@ -70,8 +74,9 @@ export default async function ConfiguracionPage() {
         <ConfiguracionForm empresa={empresa} />
         <SucursalesBodegas empresaId={perfil.empresaId} sucursales={sucursales ?? []} bodegas={bodegas ?? []} />
       </div>
-      <div className="mt-8">
+      <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
         <ConfigOperativa config={configOperativa} />
+        <CamposPersonalizados campos={camposPersonalizados} />
       </div>
     </div>
   );

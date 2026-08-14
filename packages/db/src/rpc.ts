@@ -262,6 +262,29 @@ export async function actualizarConfigOperativaEmpresa(
   return data as unknown as { empresa_id: string };
 }
 
+export interface CampoPersonalizado {
+  /** Identificador interno — minúsculas/números/guión bajo, se usa como
+   * key dentro de productos_empresa.campos_extra. */
+  clave: string;
+  /** Lo que se muestra en la UI (mapeador, ABM, columna de la tabla). */
+  etiqueta: string;
+}
+
+/** Reemplaza la lista COMPLETA de campos personalizados de la empresa
+ * (no agrega uno solo) — el llamador siempre manda el array entero, ya
+ * armado con el que se agregó/sacó. */
+export async function actualizarCamposPersonalizadosEmpresa(
+  supabase: SupabaseClient<Database>,
+  campos: CampoPersonalizado[]
+): Promise<{ empresa_id: string }> {
+  const { data, error } = await supabase.rpc("actualizar_campos_personalizados_empresa", {
+    p_campos: campos as unknown as Json,
+  });
+
+  if (error) throw error;
+  return data as unknown as { empresa_id: string };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Importación de catálogo (Fase 2)
 // ═══════════════════════════════════════════════════════════════
@@ -358,12 +381,12 @@ export async function iniciarImportacion(
   supabase: SupabaseClient<Database>,
   archivo: string,
   mapeo: Json,
-  sucursalId?: string | null
+  sucursalIds: string[] = []
 ): Promise<string> {
   const { data, error } = await supabase.rpc("iniciar_importacion", {
     p_archivo: archivo,
     p_mapeo: mapeo,
-    p_sucursal_id: sucursalId ?? null,
+    p_sucursal_ids: sucursalIds,
   });
 
   if (error) throw error;
