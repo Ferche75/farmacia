@@ -22,11 +22,13 @@ import { parseArchivo, aplicarMapeo, trocear, type ArchivoParseado } from "@/lib
 
 type Paso = "laboratorio" | "mapeo" | "preview" | "confirmando" | "listo";
 
+// "Listo" no es un paso más de la barra — es un estado final que se muestra
+// como popup encima del último paso real (ver el modal al fondo del JSX),
+// no como una cuarta pestaña a la que "se llega".
 const PASOS: { paso: Paso; label: string }[] = [
   { paso: "laboratorio", label: "Archivo" },
   { paso: "mapeo", label: "Mapeo" },
   { paso: "preview", label: "Revisión" },
-  { paso: "listo", label: "Listo" },
 ];
 
 interface MapeoGuardado {
@@ -97,7 +99,7 @@ export function Importador({
   const filasOrdenadas = ordenCampos
     .map((campo) => CAMPOS_SISTEMA.find((c) => c.campo === campo))
     .filter((c): c is (typeof CAMPOS_SISTEMA)[number] => c !== undefined);
-  const pasoIndex = paso === "confirmando" ? 2 : PASOS.findIndex((p) => p.paso === paso);
+  const pasoIndex = paso === "confirmando" || paso === "listo" ? 2 : PASOS.findIndex((p) => p.paso === paso);
 
   function moverCampo(campo: CampoSistema, direccion: -1 | 1) {
     setOrdenCampos((prev) => {
@@ -546,17 +548,19 @@ export function Importador({
       )}
 
       {paso === "listo" && progreso && (
-        <div className="max-w-lg rounded-lg border border-line bg-surface p-6">
-          <p className="mb-3 text-lg font-semibold text-ink">Importación completa</p>
-          <p className="font-mono text-sm text-muted">
-            {progreso.creados} creados, {progreso.actualizados} actualizados, {progreso.rechazados} rechazados.
-          </p>
-          <button
-            onClick={empezarDeNuevo}
-            className="mt-4 rounded-md bg-brand px-3 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90"
-          >
-            Nueva importación
-          </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-ink/40 p-6">
+          <div className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-xl">
+            <p className="mb-3 text-lg font-semibold text-ink">Importación completa</p>
+            <p className="font-mono text-sm text-muted">
+              {progreso.creados} creados, {progreso.actualizados} actualizados, {progreso.rechazados} rechazados.
+            </p>
+            <button
+              onClick={empezarDeNuevo}
+              className="mt-4 rounded-md bg-brand px-3 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90"
+            >
+              Nueva importación
+            </button>
+          </div>
         </div>
       )}
     </div>
