@@ -26,24 +26,63 @@ interface Sugerencia {
 interface FormEdicion {
   nombre: string;
   laboratorio: string;
-  concentracion: string;
-  forma: string;
+  concentracionValor: string;
+  concentracionUnidad: string;
   contenido: string;
   unidad: string;
 }
 
 const inputClase =
   "w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand";
+const selectClase = inputClase;
+
+// Mismo vocabulario que el prompt de Gemini en n8n/flujo-desconocidos-ia.json
+// (sección "unidad: uno de comprimidos|capsulas|ml|g|unidades|sobres|ampollas")
+// — así lo que sugiere la IA cae siempre en una opción real del selector.
+const UNIDADES_PRESENTACION = ["comprimidos", "capsulas", "ml", "g", "unidades", "sobres", "ampollas"];
+const UNIDADES_CONCENTRACION = ["mg", "ml", "mcg", "%"];
+
+// Parseo best-effort de lo que devuelve la IA (ej. "400 mg") a
+// valor+unidad separados para los 2 inputs. Notaciones compuestas tipo
+// "500 mg/5 ml" no entran enteras en un numérico — se recorta a la
+// primera cantidad+unidad reconocida y el resto se pierde; es una
+// simplificación a propósito (la mayoría de los productos son
+// concentración simple), corregible a mano si hace falta más precisión.
+function parseConcentracion(texto: string | undefined): { valor: string; unidad: string } {
+  const match = texto?.match(/(\d+(?:[.,]\d+)?)\s*(mg|ml|mcg|%)/i);
+  if (!match) return { valor: "", unidad: "mg" };
+  return { valor: match[1].replace(",", "."), unidad: match[2].toLowerCase() };
+}
 
 function formVacio(ia: RespuestaIA | null): FormEdicion {
+  const { valor, unidad } = parseConcentracion(ia?.concentracion);
   return {
     nombre: ia?.nombre ?? "",
     laboratorio: ia?.laboratorio ?? "",
-    concentracion: ia?.concentracion ?? "",
-    forma: "",
+    concentracionValor: valor,
+    concentracionUnidad: unidad,
     contenido: ia?.contenido ? String(ia.contenido) : "",
     unidad: ia?.unidad ?? "",
   };
+}
+
+// laboratorios solo lo puede escribir admin/gerente/superadmin (RLS) —
+// que es exactamente a quién ya restringe resolver_desconocido más abajo,
+// así que un insert directo del cliente es seguro acá (mismo patrón que
+// productos-abm.tsx: upsert por nombre, sin pantalla de elegir/crear).
+async function resolverLaboratorioId(
+  supabase: ReturnType<typeof createBrowserClient>,
+  nombre: string
+): Promise<string | null> {
+  const limpio = nombre.trim();
+  if (!limpio) return null;
+  const { data, error } = await supabase
+    .from("laboratorios")
+    .upsert({ nombre: limpio }, { onConflict: "nombre" })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
 }
 
 /** Tarjeta no invasiva arriba de la pantalla de conteo — CONTEXTO.md /
@@ -114,11 +153,16 @@ export function TarjetaSugerencia({
   async function resolver(datos: FormEdicion) {
     setGuardando(true);
     try {
+      const laboratorioId = await resolverLaboratorioId(supabase, datos.laboratorio);
+      const concentracion = datos.concentracionValor.trim()
+        ? `${datos.concentracionValor.trim()} ${datos.concentracionUnidad}`
+        : null;
+
       const { productoId } = await resolverDesconocido(supabase, actual.id, {
         nuevoProducto: {
           nombre: datos.nombre,
-          concentracion: datos.concentracion || null,
-          forma: datos.forma || null,
+          laboratorio_id: laboratorioId,
+          concentracion,
           contenido: datos.contenido ? Number(datos.contenido) : null,
           unidad: datos.unidad || null,
           origen: "ia",
@@ -131,8 +175,8 @@ export function TarjetaSugerencia({
         productoId,
         nombre: datos.nombre,
         laboratorio: datos.laboratorio || null,
-        concentracion: datos.concentracion || null,
-        forma: datos.forma || null,
+        concentracion,
+        forma: null,
         contenido: datos.contenido ? Number(datos.contenido) : null,
         unidad: datos.unidad || null,
       });
@@ -154,15 +198,22 @@ export function TarjetaSugerencia({
 
   return (
     <div className="mb-5 rounded-lg border border-brand/30 bg-brand-dim/20 p-3.5">
-      {noReconocido ? (
+      {noReconocido && !editando ? (
         <div>
           <p className="text-sm text-paper">
             La IA no pudo identificar el código{" "}
-            <span className="font-mono text-muted">{actual.codigoNorm}</span>.
+            <span className="font-mono text-muted">{actual.codigoNorm}</span>. Sin código de barras para
+            leer, hay datos que nunca va a poder adivinar solo por la foto — completalos a mano si los
+            tenés a la vista.
           </p>
-          <button onClick={descartar} className="mt-2 text-xs font-medium text-brand">
-            OK, queda para revisar después
-          </button>
+          <div className="mt-2 flex gap-3">
+            <button onClick={() => setEditando(true)} className="text-xs font-medium text-brand">
+              Completar a mano
+            </button>
+            <button onClick={descartar} className="text-xs font-medium text-muted">
+              Dejar para revisar después
+            </button>
+          </div>
         </div>
       ) : editando ? (
         <div className="space-y-2">
@@ -171,6 +222,7 @@ export function TarjetaSugerencia({
             value={form.nombre}
             onChange={(e) => setForm({ ...form, nombre: e.target.value })}
             placeholder="Nombre"
+            autoFocus
           />
           <input
             className={inputClase}
@@ -181,16 +233,43 @@ export function TarjetaSugerencia({
           <div className="grid grid-cols-2 gap-2">
             <input
               className={inputClase}
-              value={form.concentracion}
-              onChange={(e) => setForm({ ...form, concentracion: e.target.value })}
+              type="number"
+              value={form.concentracionValor}
+              onChange={(e) => setForm({ ...form, concentracionValor: e.target.value })}
               placeholder="Concentración"
             />
+            <select
+              className={selectClase}
+              value={form.concentracionUnidad}
+              onChange={(e) => setForm({ ...form, concentracionUnidad: e.target.value })}
+            >
+              {UNIDADES_CONCENTRACION.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
             <input
               className={inputClase}
-              value={form.forma}
-              onChange={(e) => setForm({ ...form, forma: e.target.value })}
-              placeholder="Forma"
+              type="number"
+              value={form.contenido}
+              onChange={(e) => setForm({ ...form, contenido: e.target.value })}
+              placeholder="Contenido"
             />
+            <select
+              className={selectClase}
+              value={form.unidad}
+              onChange={(e) => setForm({ ...form, unidad: e.target.value })}
+            >
+              <option value="">Presentación…</option>
+              {UNIDADES_PRESENTACION.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="flex items-center gap-3 pt-1">
             <button

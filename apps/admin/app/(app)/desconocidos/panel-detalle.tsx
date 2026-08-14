@@ -7,7 +7,8 @@ import type { DesconocidoItem } from "./tipos";
 interface FormEdicion {
   nombre: string;
   laboratorio: string;
-  concentracion: string;
+  concentracionValor: string;
+  concentracionUnidad: string;
   contenido: string;
   unidad: string;
 }
@@ -18,18 +19,58 @@ interface ProductoBusqueda {
   laboratorios: { nombre: string } | null;
 }
 
+// Mismo vocabulario que el prompt de Gemini en n8n/flujo-desconocidos-ia.json
+// (sección "unidad: uno de comprimidos|capsulas|ml|g|unidades|sobres|ampollas")
+// — así lo que sugiere la IA cae siempre en una opción real del selector.
+const UNIDADES_PRESENTACION = ["comprimidos", "capsulas", "ml", "g", "unidades", "sobres", "ampollas"];
+const UNIDADES_CONCENTRACION = ["mg", "ml", "mcg", "%"];
+
+// Parseo best-effort de lo que devuelve la IA (ej. "400 mg") a
+// valor+unidad separados para los 2 inputs. Notaciones compuestas tipo
+// "500 mg/5 ml" no entran enteras en un numérico — se recorta a la
+// primera cantidad+unidad reconocida y el resto se pierde; es una
+// simplificación a propósito (la mayoría de los productos son
+// concentración simple), corregible a mano si hace falta más precisión.
+function parseConcentracion(texto: string | undefined): { valor: string; unidad: string } {
+  const match = texto?.match(/(\d+(?:[.,]\d+)?)\s*(mg|ml|mcg|%)/i);
+  if (!match) return { valor: "", unidad: "mg" };
+  return { valor: match[1].replace(",", "."), unidad: match[2].toLowerCase() };
+}
+
 function formVacio(item: DesconocidoItem | null): FormEdicion {
   const ia = item?.ia_respuesta;
+  const { valor, unidad } = parseConcentracion(ia?.concentracion);
   return {
     nombre: ia?.nombre ?? "",
     laboratorio: ia?.laboratorio ?? "",
-    concentracion: ia?.concentracion ?? "",
+    concentracionValor: valor,
+    concentracionUnidad: unidad,
     contenido: ia?.contenido ? String(ia.contenido) : "",
     unidad: ia?.unidad ?? "",
   };
 }
 
 const inputClase = "input";
+const selectClase = "input";
+
+// laboratorios solo lo puede escribir admin/gerente/superadmin (RLS) —
+// que es exactamente quién tiene acceso a esta pantalla, así que un
+// insert directo del cliente es seguro acá (mismo patrón que
+// productos-abm.tsx: upsert por nombre, sin pantalla de elegir/crear).
+async function resolverLaboratorioId(
+  supabase: ReturnType<typeof createBrowserClient>,
+  nombre: string
+): Promise<string | null> {
+  const limpio = nombre.trim();
+  if (!limpio) return null;
+  const { data, error } = await supabase
+    .from("laboratorios")
+    .upsert({ nombre: limpio }, { onConflict: "nombre" })
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data.id;
+}
 
 function IconChispa({ className }: { className?: string }) {
   return (
@@ -155,10 +196,15 @@ export function PanelDetalle({
       if (modo === "vincular" && productoElegido) {
         await resolverDesconocido(supabase, item.id, { productoId: productoElegido.id });
       } else {
+        const laboratorioId = await resolverLaboratorioId(supabase, form.laboratorio);
+        const concentracion = form.concentracionValor.trim()
+          ? `${form.concentracionValor.trim()} ${form.concentracionUnidad}`
+          : null;
         await resolverDesconocido(supabase, item.id, {
           nuevoProducto: {
             nombre: form.nombre.trim(),
-            concentracion: form.concentracion || null,
+            laboratorio_id: laboratorioId,
+            concentracion,
             contenido: form.contenido ? Number(form.contenido) : null,
             unidad: form.unidad || null,
             origen: item.ia_respuesta ? "ia" : "manual",
@@ -299,10 +345,22 @@ export function PanelDetalle({
             <div className="grid grid-cols-2 gap-3">
               <input
                 className={inputClase}
-                value={form.concentracion}
-                onChange={(e) => setForm({ ...form, concentracion: e.target.value })}
+                type="number"
+                value={form.concentracionValor}
+                onChange={(e) => setForm({ ...form, concentracionValor: e.target.value })}
                 placeholder="Concentración"
               />
+              <select
+                className={selectClase}
+                value={form.concentracionUnidad}
+                onChange={(e) => setForm({ ...form, concentracionUnidad: e.target.value })}
+              >
+                {UNIDADES_CONCENTRACION.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
               <input
                 className={inputClase}
                 type="number"
@@ -310,12 +368,18 @@ export function PanelDetalle({
                 onChange={(e) => setForm({ ...form, contenido: e.target.value })}
                 placeholder="Contenido"
               />
-              <input
-                className={inputClase}
+              <select
+                className={selectClase}
                 value={form.unidad}
                 onChange={(e) => setForm({ ...form, unidad: e.target.value })}
-                placeholder="Unidad"
-              />
+              >
+                <option value="">Presentación…</option>
+                {UNIDADES_PRESENTACION.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         ) : (
