@@ -23,6 +23,7 @@ export {
   TAMANO_LOTE_IMPORTACION,
   registrarEscaneoDesconocido,
   resolverDesconocido,
+  crearProductoYContar,
   subirFotoDesconocido,
 } from "./rpc";
 export type {
@@ -47,4 +48,5 @@ export type {
   ResultadoFinalizarImportacion,
   ResultadoEscaneoDesconocido,
   NuevoProductoDesdeIA,
+  NuevoProductoManual,
 } from "./rpc";

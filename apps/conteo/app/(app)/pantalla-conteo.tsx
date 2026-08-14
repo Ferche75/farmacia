@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createBrowserClient, cerrarConteo } from "@farmacia/db";
+import { createBrowserClient, cerrarConteo, crearProductoYContar, type NuevoProductoManual } from "@farmacia/db";
 import { db, type LineaLocal, type LineaDesconocidoLocal, type MetaConteo } from "@/lib/db";
 import {
   procesarEscaneo,
   deshacerUltimoEscaneo,
   establecerCantidad,
+  generarUuid,
+  dispositivoActual,
   type ResultadoEscaneo,
 } from "@/lib/motor-escaneo";
 import {
@@ -15,8 +17,10 @@ import {
   registrarFotoDesconocidoNuevo,
   establecerCantidadDesconocido,
   obtenerFotoLocal,
+  agregarProductoManualAProductoLocal,
 } from "@/lib/motor-desconocidos";
 import { comprimirImagen } from "@/lib/foto";
+import { UNIDADES_PRESENTACION, UNIDADES_CONCENTRACION } from "@/lib/campos-producto";
 import {
   sincronizarPendientes,
   sincronizarDesconocidosPendientes,
@@ -80,6 +84,18 @@ export function PantallaConteo({
   const [confirmandoCierre, setConfirmandoCierre] = useState(false);
   const [cerrando, setCerrando] = useState(false);
   const [errorCierre, setErrorCierre] = useState<string | null>(null);
+
+  const [cargandoSinFoto, setCargandoSinFoto] = useState(false);
+  const [formSinFoto, setFormSinFoto] = useState({
+    nombre: "",
+    laboratorio: "",
+    concentracionValor: "",
+    concentracionUnidad: "mg",
+    contenido: "",
+    unidad: "",
+  });
+  const [guardandoSinFoto, setGuardandoSinFoto] = useState(false);
+  const [errorSinFoto, setErrorSinFoto] = useState<string | null>(null);
 
   const refrescarLineas = useCallback(async () => {
     const todas = await db.lineas.where("conteoId").equals(meta.conteoId).toArray();
@@ -251,6 +267,77 @@ export function PantallaConteo({
     fotoInputRef.current?.click();
   }
 
+  function abrirCargaSinFoto() {
+    setFormSinFoto({
+      nombre: "",
+      laboratorio: "",
+      concentracionValor: "",
+      concentracionUnidad: "mg",
+      contenido: "",
+      unidad: "",
+    });
+    setErrorSinFoto(null);
+    setCargandoSinFoto(true);
+  }
+
+  // Camino directo (sin foto, sin pasar por la tabla `desconocidos`) para
+  // cuando quien cuenta ya sabe qué es el producto — crear_producto_y_contar
+  // requiere estar online, es una llamada directa igual que "Aceptar" en
+  // TarjetaSugerencia, no se encola para sincronizar después.
+  async function guardarSinFoto() {
+    if (feedback?.tipo !== "no_encontrado" || !formSinFoto.nombre.trim()) return;
+
+    setGuardandoSinFoto(true);
+    setErrorSinFoto(null);
+    try {
+      const concentracion = formSinFoto.concentracionValor.trim()
+        ? `${formSinFoto.concentracionValor.trim()} ${formSinFoto.concentracionUnidad}`
+        : null;
+      const nuevoProducto: NuevoProductoManual = {
+        nombre: formSinFoto.nombre.trim(),
+        laboratorio: formSinFoto.laboratorio || null,
+        concentracion,
+        contenido: formSinFoto.contenido ? Number(formSinFoto.contenido) : null,
+        unidad: formSinFoto.unidad || null,
+      };
+
+      const supabase = createBrowserClient();
+      const resultado = await crearProductoYContar(supabase, {
+        conteoId: meta.conteoId,
+        codigoRaw: feedback.codigoRaw,
+        clientUuid: generarUuid(),
+        nuevoProducto,
+        dispositivo: dispositivoActual(),
+      });
+
+      if (!("duplicado" in resultado)) {
+        await agregarProductoManualAProductoLocal({
+          conteoId: meta.conteoId,
+          codigoNorm: feedback.codigoNorm,
+          productoId: resultado.productoId,
+          nombre: nuevoProducto.nombre,
+          laboratorio: nuevoProducto.laboratorio ?? null,
+          concentracion,
+          contenido: nuevoProducto.contenido ?? null,
+          unidad: nuevoProducto.unidad ?? null,
+          cantidad: 1,
+        });
+        const lineaLocal = await db.lineas.get(`${meta.conteoId}:${resultado.productoId}`);
+        feedbackEncontrado();
+        setFeedback(lineaLocal ? { tipo: "encontrado", linea: lineaLocal, unidadesPorCodigo: 1 } : null);
+        await refrescarLineas();
+        await refrescarPendientes();
+      }
+
+      setCargandoSinFoto(false);
+    } catch (e) {
+      setErrorSinFoto(e instanceof Error ? e.message : "No se pudo crear el producto.");
+    } finally {
+      setGuardandoSinFoto(false);
+      reenfocar();
+    }
+  }
+
   async function onFotoSeleccionada(e: React.ChangeEvent<HTMLInputElement>) {
     const archivo = e.target.files?.[0];
     e.target.value = ""; // permite volver a elegir el mismo archivo después
@@ -417,17 +504,97 @@ export function PantallaConteo({
           {feedback.tipo === "duplicado" && (
             <p className="font-medium text-duplicate">Duplicado — {feedback.codigoRaw}</p>
           )}
-          {feedback.tipo === "no_encontrado" && (
+          {feedback.tipo === "no_encontrado" && !cargandoSinFoto && (
             <>
               <p className="mb-3 font-medium text-notfound">No encontrado — {feedback.codigoRaw}</p>
-              <button
-                onClick={() => onClickTomarFoto(feedback.codigoRaw, feedback.codigoNorm)}
-                disabled={subiendoFoto}
-                className="rounded-md bg-notfound px-5 py-3 text-base font-medium text-ink transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {subiendoFoto ? "Procesando…" : "Tomar foto"}
-              </button>
+              <div className="flex justify-center gap-2.5">
+                <button
+                  onClick={() => onClickTomarFoto(feedback.codigoRaw, feedback.codigoNorm)}
+                  disabled={subiendoFoto}
+                  className="rounded-md bg-notfound px-5 py-3 text-base font-medium text-ink transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {subiendoFoto ? "Procesando…" : "Tomar foto"}
+                </button>
+                <button
+                  onClick={abrirCargaSinFoto}
+                  className="rounded-md border border-notfound/50 px-5 py-3 text-base font-medium text-notfound transition-colors hover:bg-notfound-bg"
+                >
+                  Cargar sin foto
+                </button>
+              </div>
             </>
+          )}
+          {feedback.tipo === "no_encontrado" && cargandoSinFoto && (
+            <div className="space-y-2 text-left">
+              <p className="mb-1 text-center font-medium text-notfound">{feedback.codigoRaw}</p>
+              {errorSinFoto && <p className="text-sm text-notfound">{errorSinFoto}</p>}
+              <input
+                className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                value={formSinFoto.nombre}
+                onChange={(e) => setFormSinFoto({ ...formSinFoto, nombre: e.target.value })}
+                placeholder="Nombre *"
+                autoFocus
+              />
+              <input
+                className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                value={formSinFoto.laboratorio}
+                onChange={(e) => setFormSinFoto({ ...formSinFoto, laboratorio: e.target.value })}
+                placeholder="Laboratorio"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                  type="number"
+                  value={formSinFoto.concentracionValor}
+                  onChange={(e) => setFormSinFoto({ ...formSinFoto, concentracionValor: e.target.value })}
+                  placeholder="Concentración"
+                />
+                <select
+                  className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                  value={formSinFoto.concentracionUnidad}
+                  onChange={(e) => setFormSinFoto({ ...formSinFoto, concentracionUnidad: e.target.value })}
+                >
+                  {UNIDADES_CONCENTRACION.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                  type="number"
+                  value={formSinFoto.contenido}
+                  onChange={(e) => setFormSinFoto({ ...formSinFoto, contenido: e.target.value })}
+                  placeholder="Contenido"
+                />
+                <select
+                  className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                  value={formSinFoto.unidad}
+                  onChange={(e) => setFormSinFoto({ ...formSinFoto, unidad: e.target.value })}
+                >
+                  <option value="">Presentación…</option>
+                  {UNIDADES_PRESENTACION.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  onClick={guardarSinFoto}
+                  disabled={guardandoSinFoto || !formSinFoto.nombre.trim()}
+                  className="flex-1 rounded-md bg-notfound px-3 py-2 text-sm font-medium text-ink disabled:opacity-50"
+                >
+                  {guardandoSinFoto ? "Guardando…" : "Guardar y contar"}
+                </button>
+                <button onClick={() => setCargandoSinFoto(false)} className="text-sm text-muted">
+                  Volver
+                </button>
+              </div>
+            </div>
           )}
           {feedback.tipo === "codigo_invalido" && (
             <p className="font-medium text-notfound">Código inválido — {feedback.codigoRaw}</p>

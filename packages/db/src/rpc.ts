@@ -501,6 +501,51 @@ export async function resolverDesconocido(
   return { productoId: (data as { producto_id: string }).producto_id };
 }
 
+export interface NuevoProductoManual {
+  nombre: string;
+  /** Nombre, no id — crear_producto_y_contar (RPC) lo resuelve/crea él
+   * mismo con SECURITY DEFINER, porque quien llama puede ser un operario
+   * sin permiso de escritura directa sobre `laboratorios` (a diferencia de
+   * NuevoProductoDesdeIA.laboratorio_id, que asume que quien llama ya
+   * pudo resolverlo del lado del cliente porque resolver_desconocido está
+   * restringido a admin/gerente/superadmin). */
+  laboratorio?: string | null;
+  principio_activo?: string | null;
+  concentracion?: string | null;
+  contenido?: number | null;
+  unidad?: string | null;
+}
+
+/** Camino paralelo a registrar_escaneo_desconocido/resolver_desconocido:
+ * carga un producto nuevo COMPLETO y ya cuenta el escaneo en el mismo paso,
+ * sin pasar por la tabla `desconocidos` — para cuando quien cuenta ya sabe
+ * qué es el producto y no necesita foto ni que nadie más lo revise después. */
+export async function crearProductoYContar(
+  supabase: SupabaseClient<Database>,
+  params: {
+    conteoId: string;
+    codigoRaw: string;
+    clientUuid: string;
+    nuevoProducto: NuevoProductoManual;
+    delta?: number;
+    dispositivo?: string;
+  }
+): Promise<{ productoId: string; lineaId: string } | { duplicado: true }> {
+  const { data, error } = await supabase.rpc("crear_producto_y_contar", {
+    p_conteo: params.conteoId,
+    p_codigo_raw: params.codigoRaw,
+    p_client_uuid: params.clientUuid,
+    p_nuevo_producto: params.nuevoProducto as unknown as Json,
+    p_delta: params.delta ?? 1,
+    p_dispositivo: params.dispositivo ?? null,
+  });
+
+  if (error) throw error;
+  const resultado = data as { duplicado?: boolean; producto_id?: string; linea_id?: string };
+  if (resultado.duplicado) return { duplicado: true };
+  return { productoId: resultado.producto_id!, lineaId: resultado.linea_id! };
+}
+
 /** Ruta del archivo: empresa_id/conteo_id/archivo.jpg (spec Fase 4) —
  * las policies de Storage dependen de este formato exacto, no cambiarlo
  * sin actualizar supabase/migrations/20260806000006_desconocidos_storage.sql. */

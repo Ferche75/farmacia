@@ -34,7 +34,7 @@ export function generarUuid(): string {
   });
 }
 
-function formatearPresentacion(p: {
+export function formatearPresentacion(p: {
   concentracion: string | null;
   forma: string | null;
   contenido: number | null;

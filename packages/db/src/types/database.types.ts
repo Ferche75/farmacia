@@ -662,6 +662,17 @@ export interface Database {
         };
         Returns: Json;
       };
+      crear_producto_y_contar: {
+        Args: {
+          p_conteo: string;
+          p_codigo_raw: string;
+          p_client_uuid: string;
+          p_nuevo_producto: Json;
+          p_delta?: number;
+          p_dispositivo?: string | null;
+        };
+        Returns: Json;
+      };
       actualizar_usuario_superadmin: {
         Args: {
           p_perfil_id: string;

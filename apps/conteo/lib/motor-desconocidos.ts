@@ -1,5 +1,5 @@
 import { db, type LineaDesconocidoLocal } from "./db";
-import { dispositivoActual, generarUuid } from "./motor-escaneo";
+import { dispositivoActual, generarUuid, formatearPresentacion } from "./motor-escaneo";
 
 // Se llama cuando motor-escaneo.procesarEscaneo() devolvió "no_encontrado"
 // — acá se decide si es la primera vez que se ve ese código (hace falta
@@ -203,4 +203,48 @@ export async function migrarDesconocidoAProductoLocal(params: {
       await db.desconocidos.delete(codigoNorm);
     }
   );
+}
+
+/** Contraparte local de crear_producto_y_contar (RPC) — "Cargar sin foto"
+ * desde un "No encontrado". A diferencia de migrarDesconocidoAProductoLocal,
+ * acá nunca hubo una lineaDesconocidos que fusionar: el código nunca pasó
+ * por el camino de "desconocido", se resolvió de una. */
+export async function agregarProductoManualAProductoLocal(params: {
+  conteoId: string;
+  codigoNorm: string;
+  productoId: string;
+  nombre: string;
+  laboratorio: string | null;
+  concentracion: string | null;
+  contenido: number | null;
+  unidad: string | null;
+  cantidad: number;
+}): Promise<void> {
+  const { conteoId, codigoNorm, productoId, nombre, laboratorio, concentracion, contenido, unidad, cantidad } = params;
+
+  await db.transaction("rw", db.catalogo, db.lineas, async () => {
+    await db.catalogo.put({
+      codigoNorm,
+      productoId,
+      nombre,
+      laboratorio,
+      concentracion,
+      forma: null,
+      contenido,
+      unidad,
+      unidadesPorCodigo: 1,
+    });
+
+    await db.lineas.put({
+      id: `${conteoId}:${productoId}`,
+      conteoId,
+      productoId,
+      codigoNorm,
+      nombre,
+      laboratorio,
+      presentacion: formatearPresentacion({ concentracion, forma: null, contenido, unidad }),
+      cantidad,
+      ultimoEscaneoAt: Date.now(),
+    });
+  });
 }

@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { createBrowserClient, resolverDesconocido, type Database } from "@farmacia/db";
 import { migrarDesconocidoAProductoLocal } from "@/lib/motor-desconocidos";
+import {
+  UNIDADES_PRESENTACION,
+  UNIDADES_CONCENTRACION,
+  parseConcentracion,
+  resolverLaboratorioId,
+} from "@/lib/campos-producto";
 
 type FilaDesconocido = Database["public"]["Tables"]["desconocidos"]["Row"];
 
@@ -36,24 +42,6 @@ const inputClase =
   "w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand";
 const selectClase = inputClase;
 
-// Mismo vocabulario que el prompt de Gemini en n8n/flujo-desconocidos-ia.json
-// (sección "unidad: uno de comprimidos|capsulas|ml|g|unidades|sobres|ampollas")
-// — así lo que sugiere la IA cae siempre en una opción real del selector.
-const UNIDADES_PRESENTACION = ["comprimidos", "capsulas", "ml", "g", "unidades", "sobres", "ampollas"];
-const UNIDADES_CONCENTRACION = ["mg", "ml", "mcg", "%"];
-
-// Parseo best-effort de lo que devuelve la IA (ej. "400 mg") a
-// valor+unidad separados para los 2 inputs. Notaciones compuestas tipo
-// "500 mg/5 ml" no entran enteras en un numérico — se recorta a la
-// primera cantidad+unidad reconocida y el resto se pierde; es una
-// simplificación a propósito (la mayoría de los productos son
-// concentración simple), corregible a mano si hace falta más precisión.
-function parseConcentracion(texto: string | undefined): { valor: string; unidad: string } {
-  const match = texto?.match(/(\d+(?:[.,]\d+)?)\s*(mg|ml|mcg|%)/i);
-  if (!match) return { valor: "", unidad: "mg" };
-  return { valor: match[1].replace(",", "."), unidad: match[2].toLowerCase() };
-}
-
 function formVacio(ia: RespuestaIA | null): FormEdicion {
   const { valor, unidad } = parseConcentracion(ia?.concentracion);
   return {
@@ -64,25 +52,6 @@ function formVacio(ia: RespuestaIA | null): FormEdicion {
     contenido: ia?.contenido ? String(ia.contenido) : "",
     unidad: ia?.unidad ?? "",
   };
-}
-
-// laboratorios solo lo puede escribir admin/gerente/superadmin (RLS) —
-// que es exactamente a quién ya restringe resolver_desconocido más abajo,
-// así que un insert directo del cliente es seguro acá (mismo patrón que
-// productos-abm.tsx: upsert por nombre, sin pantalla de elegir/crear).
-async function resolverLaboratorioId(
-  supabase: ReturnType<typeof createBrowserClient>,
-  nombre: string
-): Promise<string | null> {
-  const limpio = nombre.trim();
-  if (!limpio) return null;
-  const { data, error } = await supabase
-    .from("laboratorios")
-    .upsert({ nombre: limpio }, { onConflict: "nombre" })
-    .select("id")
-    .single();
-  if (error) throw error;
-  return data.id;
 }
 
 /** Tarjeta no invasiva arriba de la pantalla de conteo — CONTEXTO.md /
