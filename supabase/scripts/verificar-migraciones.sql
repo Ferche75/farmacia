@@ -68,4 +68,52 @@ select 'trigger conteos_validar_bodega (20260813000000)',
 union all
 select 'función actualizar_datos_contacto_empresa (20260813000001)',
   exists (select 1 from pg_proc where proname = 'actualizar_datos_contacto_empresa')
+union all
+select 'sucursales/bodegas autoservicio (20260813000002)',
+  exists (select 1 from pg_policies where tablename = 'sucursales' and policyname = 'sucursales_insert_propia_empresa')
+union all
+select 'importaciones.sucursal_id (20260813000003)',
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'importaciones' and column_name = 'sucursal_id'
+  )
+union all
+select 'laboratorio realmente opcional (20260813000004)',
+  exists (
+    select 1 from pg_proc
+    where proname = 'confirmar_importacion_lote' and prosrc not like '%laboratorio_no_definido%'
+  )
+union all
+select 'operario puede cerrar conteo (20260813000005)',
+  exists (
+    select 1 from pg_proc
+    where proname = 'cerrar_conteo' and prosrc like '%''operario''%'
+  )
+union all
+select 'codigos_barra.unidades_por_codigo en importador (20260813000006)',
+  exists (
+    select 1 from pg_proc
+    where proname = 'confirmar_importacion_lote' and prosrc like '%v_unidades_por_codigo%'
+  )
+union all
+select 'función actualizar_config_operativa_empresa (20260813000007)',
+  exists (select 1 from pg_proc where proname = 'actualizar_config_operativa_empresa')
+union all
+select 'productos.fabricante (20260813000007)',
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'productos' and column_name = 'fabricante'
+  )
+union all
+select 'productos_empresa.lote_catalogo (20260813000007)',
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'productos_empresa' and column_name = 'lote_catalogo'
+  )
+union all
+select 'tabla productos_sucursales (20260813000008)',
+  exists (
+    select 1 from information_schema.tables
+    where table_schema = 'public' and table_name = 'productos_sucursales'
+  )
 order by 1;
