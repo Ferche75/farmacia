@@ -50,6 +50,19 @@ interface Progreso {
   rechazados: number;
 }
 
+// Las 3 columnas del wizard están siempre en pantalla, una al lado de la
+// otra — no se reemplaza una por otra al avanzar. La que todavía no tiene
+// datos (no subiste archivo, no mapeaste todavía) se ve como este cascarón
+// vacío en vez de desaparecer, así el usuario ve desde el arranque los 3
+// pasos que le faltan, no solo el que está haciendo ahora.
+function ColumnaVacia({ texto }: { texto: string }) {
+  return (
+    <div className="flex min-h-[220px] items-center justify-center rounded-lg border border-dashed border-line p-6 text-center text-sm text-muted">
+      {texto}
+    </div>
+  );
+}
+
 export function Importador({
   empresaId,
   sucursales,
@@ -241,7 +254,7 @@ export function Importador({
   }
 
   return (
-    <div className="max-w-5xl">
+    <div>
       <ol className="mb-6 flex items-center gap-2 text-xs font-medium">
         {PASOS.map((p, i) => (
           <li key={p.paso} className="flex items-center gap-2">
@@ -270,8 +283,10 @@ export function Importador({
         </p>
       )}
 
-      {paso === "laboratorio" && (
-        <div className="max-w-lg space-y-4 rounded-lg border border-line bg-surface p-6">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+      <div>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Archivo</h2>
+        <div className="space-y-4 rounded-lg border border-line bg-surface p-6">
           <div>
             <label className="mb-1.5 block text-sm font-medium text-ink">Sucursales *</label>
             <div className="flex flex-wrap gap-x-4 gap-y-1.5 rounded-md border border-line px-3 py-2.5">
@@ -371,9 +386,13 @@ export function Importador({
             )}
           </div>
         </div>
-      )}
+      </div>
 
-      {paso === "mapeo" && archivo && (
+      <div>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Mapeo</h2>
+        {!archivo ? (
+          <ColumnaVacia texto="Subí un archivo para mapear sus columnas." />
+        ) : (
         <div className="space-y-4 rounded-lg border border-line bg-surface p-6">
           <p className="text-sm text-muted">
             {nombreArchivo} — {archivo.filas.length} filas detectadas. Asociá cada campo del sistema a una columna del archivo.
@@ -459,9 +478,33 @@ export function Importador({
             </button>
           </div>
         </div>
-      )}
+        )}
+      </div>
 
-      {paso === "preview" && preview && (
+      <div>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Revisión</h2>
+        {paso === "confirmando" ? (
+          <div className="rounded-lg border border-line bg-surface p-6">
+            <p className="mb-3 text-sm text-ink">
+              Procesando lote {progreso?.lote ?? 0} de {progreso?.totalLotes ?? "…"}…
+            </p>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-paper">
+              <div
+                className="h-full bg-brand transition-all"
+                style={{
+                  width: progreso ? `${(progreso.lote / progreso.totalLotes) * 100}%` : "0%",
+                }}
+              />
+            </div>
+            {progreso && (
+              <p className="mt-3 font-mono text-xs text-muted">
+                Creados: {progreso.creados} · Actualizados: {progreso.actualizados} · Rechazados: {progreso.rechazados}
+              </p>
+            )}
+          </div>
+        ) : !preview ? (
+          <ColumnaVacia texto="Mapeá y previsualizá el archivo para ver qué va a pasar antes de confirmar." />
+        ) : (
         <div className="space-y-4 rounded-lg border border-line bg-surface p-6">
           <div className="flex gap-6 text-sm">
             <span className="text-ink">Total: <strong className="font-mono">{preview.total}</strong></span>
@@ -524,28 +567,9 @@ export function Importador({
             </button>
           </div>
         </div>
-      )}
-
-      {paso === "confirmando" && (
-        <div className="max-w-lg rounded-lg border border-line bg-surface p-6">
-          <p className="mb-3 text-sm text-ink">
-            Procesando lote {progreso?.lote ?? 0} de {progreso?.totalLotes ?? "…"}…
-          </p>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-paper">
-            <div
-              className="h-full bg-brand transition-all"
-              style={{
-                width: progreso ? `${(progreso.lote / progreso.totalLotes) * 100}%` : "0%",
-              }}
-            />
-          </div>
-          {progreso && (
-            <p className="mt-3 font-mono text-xs text-muted">
-              Creados: {progreso.creados} · Actualizados: {progreso.actualizados} · Rechazados: {progreso.rechazados}
-            </p>
-          )}
-        </div>
-      )}
+        )}
+      </div>
+      </div>
 
       {paso === "listo" && progreso && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-ink/40 p-6">
