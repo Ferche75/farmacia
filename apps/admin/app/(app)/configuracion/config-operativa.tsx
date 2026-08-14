@@ -75,7 +75,7 @@ export function ConfigOperativa({ config }: { config: ConfigOperativaEmpresa }) 
           Días restantes para cada color en /vencimientos y /productos. Default: 30 / 90 / 180 días (1 / 3 / 6
           meses).
         </p>
-        <div className="grid max-w-md grid-cols-3 gap-4">
+        <div className="grid max-w-md grid-cols-1 gap-4 sm:grid-cols-3">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-danger">Rojo (días o menos)</span>
             <input
@@ -115,7 +115,7 @@ export function ConfigOperativa({ config }: { config: ConfigOperativaEmpresa }) 
           &quot;Nombre&quot; siempre es obligatorio. Marcá qué más tiene que estar mapeado antes de dejar
           previsualizar una importación en tu empresa.
         </p>
-        <div className="grid max-w-lg grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        <div className="grid max-w-lg grid-cols-1 gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
           <label className="flex items-center gap-2 text-muted">
             <input type="checkbox" checked disabled className="accent-brand" />
             Nombre
