@@ -435,3 +435,9 @@ Dos problemas relacionados, reportados juntos por el usuario:
    Se agrega `intentos: number` + `ultimoError: string | null` a `EscaneoCola`/`EscaneoDesconocidoCola` (Dexie, sin bump de versión — son campos nuevos no indexados, no hace falta migrar el schema local). Cada fallo real contra el servidor (nunca "estamos offline", eso ni intenta) incrementa `intentos` y guarda el mensaje. `obtenerFallados()` (`motor-sync.ts`) junta ambas colas filtrando `intentos > 0`, y `pantalla-conteo.tsx` muestra un cartel rojo bien arriba de la pantalla (no el puntito chico del header, que solo decía "N sin sincronizar" — indistinguible de "todavía no tuvo la chance de mandarse") con el mensaje del último error y un botón "Reintentar ahora".
 
 Sin migración — todo el cambio es de cliente (IndexedDB local + UI). Typecheck + lint + `pnpm build` de `apps/conteo` limpios.
+
+## Cantidad manual: precargar el código ya escaneado (2026-08-14)
+
+Pedido: si ya escaneaste/tipeaste un código y después abrís "Cantidad manual" para corregir la cantidad, no tiene sentido pedir el mismo código de nuevo. Se agrega `ultimoCodigo` (estado que se actualiza en cada `ejecutarEscaneo`, exitoso o no) y se precarga en el campo "Código de barras" al abrir el panel — sigue siendo editable por si el código que se necesita es otro. El foco pasa directo al campo de cantidad (con el "1" default seleccionado, listo para sobreescribir con un solo tecleo) en vez de al de código.
+
+Sin migración. Typecheck + lint + `pnpm build` de `apps/conteo` limpios.

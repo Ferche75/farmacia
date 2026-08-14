@@ -110,6 +110,11 @@ export function PantallaConteo({
   const [fallados, setFallados] = useState<ItemFallado[]>([]);
   const [reintentando, setReintentando] = useState(false);
 
+  // Último código que pasó por el input principal (escaneado o tipeado) —
+  // para precargarlo en "Cantidad manual" y no obligar a escanear/tipear
+  // el mismo código dos veces.
+  const [ultimoCodigo, setUltimoCodigo] = useState("");
+
   const refrescarLineas = useCallback(async () => {
     const todas = await db.lineas.where("conteoId").equals(meta.conteoId).toArray();
     todas.sort((a, b) => b.ultimoEscaneoAt - a.ultimoEscaneoAt);
@@ -175,6 +180,7 @@ export function PantallaConteo({
   }, []);
 
   async function ejecutarEscaneo(codigoRaw: string, delta = 1, saltarDebounce = false): Promise<ResultadoEscaneo> {
+    setUltimoCodigo(codigoRaw);
     const resultado: ResultadoEscaneo = await procesarEscaneo({
       conteoId: meta.conteoId,
       codigoRaw,
@@ -683,7 +689,14 @@ export function PantallaConteo({
         <button
           onClick={() => {
             setErrorCantidadManual(null);
-            setMostrarCantidadManual((v) => !v);
+            setMostrarCantidadManual((v) => {
+              const abriendo = !v;
+              // Precargado con el último código escaneado/tipeado — no
+              // tiene sentido pedirlo de nuevo si ya se leyó hace un
+              // instante, solo la cantidad suele cambiar.
+              if (abriendo) setCodigoManual(ultimoCodigo);
+              return abriendo;
+            });
           }}
           className="flex-1 rounded-md border border-line px-4 py-3 text-sm font-medium text-paper transition-colors hover:border-muted"
         >
@@ -730,6 +743,8 @@ export function PantallaConteo({
               setCantidadManual(e.target.value);
               setErrorCantidadManual(null);
             }}
+            autoFocus
+            onFocus={(e) => e.target.select()}
             className="w-full rounded-md border border-line bg-ink px-3 py-2.5 text-sm text-paper outline-none focus:border-brand"
           />
           <button
