@@ -45,6 +45,14 @@ export interface EscaneoCola {
   dispositivo: string;
   createdAt: number; // epoch ms
   sincronizado: 0 | 1; // Dexie no indexa booleanos de forma útil; 0/1
+  /** Cuántas veces se intentó mandar al servidor y falló (no cuenta los
+   * intentos que no se hicieron por estar offline). Sin esto, un escaneo
+   * que el servidor rechaza en loop (ej. conteo cerrado, error de
+   * validación) se ve exactamente igual que uno que solo está esperando
+   * conexión — "N sin sincronizar" para siempre, sin ninguna pista de que
+   * en realidad nunca va a entrar solo. */
+  intentos: number;
+  ultimoError: string | null;
 }
 
 export interface MetaConteo {
@@ -93,6 +101,8 @@ export interface EscaneoDesconocidoCola {
   dispositivo: string;
   createdAt: number;
   sincronizado: 0 | 1;
+  intentos: number;
+  ultimoError: string | null;
 }
 
 export const db = new Dexie("farmacia-conteo") as Dexie & {

@@ -46,6 +46,8 @@ export async function procesarReescaneoDesconocido(params: {
       dispositivo: dispositivoActual(),
       createdAt: Date.now(),
       sincronizado: 0,
+      intentos: 0,
+      ultimoError: null,
     });
 
     return linea;
@@ -82,6 +84,8 @@ export async function registrarFotoDesconocidoNuevo(params: {
         dispositivo: dispositivoActual(),
         createdAt: Date.now(),
         sincronizado: 0,
+        intentos: 0,
+        ultimoError: null,
       });
 
       return linea;
@@ -119,6 +123,8 @@ export async function establecerCantidadDesconocido(
       dispositivo: dispositivoActual(),
       createdAt: Date.now(),
       sincronizado: 0,
+      intentos: 0,
+      ultimoError: null,
     });
 
     await db.lineasDesconocidos.put({ ...linea, cantidad: nuevaCantidad, ultimoEscaneoAt: Date.now() });

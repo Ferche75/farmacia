@@ -21,7 +21,16 @@ export interface ResultadoSync {
  * registrar_escaneos_batch (idempotente por client_uuid — un reintento
  * después de un corte de red no duplica nada, ver Fase 1). Los
  * "duplicados" que devuelve el RPC también se marcan como sincronizados
- * acá: significa que el servidor ya los tenía, no hay que reintentarlos. */
+ * acá: significa que el servidor ya los tenía, no hay que reintentarlos.
+ *
+ * Cada lote se manda con su propio try/catch: si uno falla (red, RLS,
+ * lo que sea), se registra el error en ESOS items (intentos/ultimoError)
+ * y se sigue con el resto, en vez de cortar toda la sincronización por
+ * un lote puntual. Los `no_encontrados` que devuelve el RPC (el código
+ * no matcheó ningún producto DEL LADO DEL SERVIDOR, aunque localmente sí
+ * — puede pasar si el catálogo local quedó desactualizado) antes se
+ * marcaban igual como sincronizados, como si el servidor los hubiera
+ * guardado — eso escondía que en realidad nunca se registraron. */
 export async function sincronizarPendientes(conteoId: string): Promise<ResultadoSync> {
   if (sincronizando) return { enviados: 0 };
   if (typeof navigator !== "undefined" && !navigator.onLine) return { enviados: 0 };
@@ -38,31 +47,55 @@ export async function sincronizarPendientes(conteoId: string): Promise<Resultado
 
     const supabase = createBrowserClient();
     let enviados = 0;
+    let ultimoError: string | undefined;
 
     for (let i = 0; i < pendientes.length; i += TAMANO_LOTE) {
       const lote = pendientes.slice(i, i + TAMANO_LOTE);
 
-      const resultado = await registrarEscaneosBatch(
-        supabase,
-        conteoId,
-        lote.map((e) => ({
-          clientUuid: e.clientUuid,
-          codigoRaw: e.codigoRaw,
-          dispositivo: e.dispositivo,
-          delta: e.delta,
-        }))
-      );
+      try {
+        const resultado = await registrarEscaneosBatch(
+          supabase,
+          conteoId,
+          lote.map((e) => ({
+            clientUuid: e.clientUuid,
+            codigoRaw: e.codigoRaw,
+            dispositivo: e.dispositivo,
+            delta: e.delta,
+          }))
+        );
 
-      await db.colaEscaneos.bulkUpdate(
-        lote.map((e) => ({ key: e.clientUuid, changes: { sincronizado: 1 as const } }))
-      );
+        const idsNoEncontrados = new Set(resultado.no_encontrados.map((n) => n.client_uuid));
+        const exitosos = lote.filter((e) => !idsNoEncontrados.has(e.clientUuid));
+        const fallidos = lote.filter((e) => idsNoEncontrados.has(e.clientUuid));
 
-      enviados += resultado.procesados;
+        if (exitosos.length) {
+          await db.colaEscaneos.bulkUpdate(
+            exitosos.map((e) => ({ key: e.clientUuid, changes: { sincronizado: 1 as const } }))
+          );
+        }
+        if (fallidos.length) {
+          ultimoError = "El servidor no encontró ese código en el catálogo.";
+          await db.colaEscaneos.bulkUpdate(
+            fallidos.map((e) => ({
+              key: e.clientUuid,
+              changes: { intentos: e.intentos + 1, ultimoError: ultimoError as string },
+            }))
+          );
+        }
+
+        enviados += resultado.procesados;
+      } catch (e) {
+        ultimoError = e instanceof Error ? e.message : "Error de sincronización";
+        await db.colaEscaneos.bulkUpdate(
+          lote.map((item) => ({
+            key: item.clientUuid,
+            changes: { intentos: item.intentos + 1, ultimoError: ultimoError as string },
+          }))
+        );
+      }
     }
 
-    return { enviados };
-  } catch (e) {
-    return { enviados: 0, error: e instanceof Error ? e.message : "Error de sincronización" };
+    return ultimoError ? { enviados, error: ultimoError } : { enviados };
   } finally {
     sincronizando = false;
   }
@@ -133,7 +166,11 @@ export async function sincronizarDesconocidosPendientes(
         });
       }
     } catch (e) {
-      console.error("Error sincronizando desconocido", item.clientUuid, e);
+      const mensaje = e instanceof Error ? e.message : "Error de sincronización";
+      await db.colaDesconocidos.update(item.clientUuid, {
+        intentos: item.intentos + 1,
+        ultimoError: mensaje,
+      });
       // sigue con el resto de la cola — un fallo puntual no bloquea a
       // los demás.
     }
@@ -189,4 +226,32 @@ export async function contarPendientes(conteoId: string): Promise<number> {
     .filter((e) => e.sincronizado === 0)
     .count();
   return normales + desconocidos;
+}
+
+export interface ItemFallado {
+  intentos: number;
+  ultimoError: string;
+}
+
+/** "Pendiente" (contarPendientes) no distingue entre "todavía no tuvo
+ * chance de mandarse" (offline, o recién escaneado) y "el servidor lo
+ * rechazó y va a seguir rechazándolo" — esto sí: cualquier item con al
+ * menos un intento fallido real (nunca cuenta estar offline, eso ni
+ * intenta) se considera fallado, para mostrarlo aparte y no dejarlo
+ * escondido en un contador genérico "sin sincronizar" para siempre. */
+export async function obtenerFallados(conteoId: string): Promise<ItemFallado[]> {
+  const normales = await db.colaEscaneos
+    .where("conteoId")
+    .equals(conteoId)
+    .filter((e) => e.sincronizado === 0 && e.intentos > 0)
+    .toArray();
+  const desconocidos = await db.colaDesconocidos
+    .where("conteoId")
+    .equals(conteoId)
+    .filter((e) => e.sincronizado === 0 && e.intentos > 0)
+    .toArray();
+  return [...normales, ...desconocidos].map((e) => ({
+    intentos: e.intentos,
+    ultimoError: e.ultimoError ?? "Error desconocido",
+  }));
 }

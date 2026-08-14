@@ -125,6 +125,8 @@ export async function procesarEscaneo(params: ProcesarEscaneoParams): Promise<Re
       dispositivo: dispositivoActual(),
       createdAt: ahora,
       sincronizado: 0,
+      intentos: 0,
+      ultimoError: null,
     });
 
     return nuevaLinea;
@@ -196,6 +198,8 @@ export async function establecerCantidad(lineaId: string, nuevaCantidad: number)
       dispositivo: dispositivoActual(),
       createdAt: Date.now(),
       sincronizado: 0,
+      intentos: 0,
+      ultimoError: null,
     });
 
     await db.lineas.put({ ...linea, cantidad: nuevaCantidad, ultimoEscaneoAt: Date.now() });

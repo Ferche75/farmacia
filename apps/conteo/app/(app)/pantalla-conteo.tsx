@@ -26,6 +26,8 @@ import {
   sincronizarDesconocidosPendientes,
   iniciarSyncAutomatico,
   contarPendientes,
+  obtenerFallados,
+  type ItemFallado,
 } from "@/lib/motor-sync";
 import {
   feedbackEncontrado,
@@ -78,6 +80,7 @@ export function PantallaConteo({
   const [mostrarCantidadManual, setMostrarCantidadManual] = useState(false);
   const [codigoManual, setCodigoManual] = useState("");
   const [cantidadManual, setCantidadManual] = useState("1");
+  const [errorCantidadManual, setErrorCantidadManual] = useState<string | null>(null);
   const [editando, setEditando] = useState<string | null>(null);
   const [valorEdicion, setValorEdicion] = useState("");
   const [subiendoFoto, setSubiendoFoto] = useState(false);
@@ -104,6 +107,9 @@ export function PantallaConteo({
   const [guardandoProducto, setGuardandoProducto] = useState(false);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
+  const [fallados, setFallados] = useState<ItemFallado[]>([]);
+  const [reintentando, setReintentando] = useState(false);
+
   const refrescarLineas = useCallback(async () => {
     const todas = await db.lineas.where("conteoId").equals(meta.conteoId).toArray();
     todas.sort((a, b) => b.ultimoEscaneoAt - a.ultimoEscaneoAt);
@@ -116,7 +122,16 @@ export function PantallaConteo({
 
   const refrescarPendientes = useCallback(async () => {
     setPendientes(await contarPendientes(meta.conteoId));
+    setFallados(await obtenerFallados(meta.conteoId));
   }, [meta.conteoId]);
+
+  async function reintentarSync() {
+    setReintentando(true);
+    await sincronizarPendientes(meta.conteoId);
+    await sincronizarDesconocidosPendientes(empresaId, meta.conteoId);
+    await refrescarPendientes();
+    setReintentando(false);
+  }
 
   useEffect(() => {
     async function cargarInicial() {
@@ -159,7 +174,7 @@ export function PantallaConteo({
     reenfocar();
   }, []);
 
-  async function ejecutarEscaneo(codigoRaw: string, delta = 1, saltarDebounce = false) {
+  async function ejecutarEscaneo(codigoRaw: string, delta = 1, saltarDebounce = false): Promise<ResultadoEscaneo> {
     const resultado: ResultadoEscaneo = await procesarEscaneo({
       conteoId: meta.conteoId,
       codigoRaw,
@@ -209,6 +224,8 @@ export function PantallaConteo({
         setFeedback({ tipo: "codigo_invalido", codigoRaw: resultado.codigoRaw });
         break;
     }
+
+    return resultado;
   }
 
   function limpiarTimeout() {
@@ -248,12 +265,29 @@ export function PantallaConteo({
   }
 
   async function onCantidadManualSubmit() {
+    setErrorCantidadManual(null);
+
+    if (!codigoManual.trim()) {
+      setErrorCantidadManual("Escribí un código de barras.");
+      return;
+    }
     const n = parseInt(cantidadManual, 10);
-    if (!codigoManual.trim() || !n || n <= 0) return;
-    await ejecutarEscaneo(codigoManual.trim(), n, true);
+    if (!n || n <= 0) {
+      setErrorCantidadManual("La cantidad tiene que ser mayor a 0.");
+      return;
+    }
+
+    const resultado = await ejecutarEscaneo(codigoManual.trim(), n, true);
     setCodigoManual("");
     setCantidadManual("1");
     setMostrarCantidadManual(false);
+    // El resultado (encontrado, no encontrado, código inválido…) ya se
+    // muestra en el cartel de arriba de la pantalla — pero si el panel
+    // estaba abierto acá abajo, sin este scroll ese cartel puede quedar
+    // fuera de la vista y parecer que "no pasó nada" al tocar Agregar.
+    if (resultado.tipo !== "encontrado") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
     reenfocar();
   }
 
@@ -446,6 +480,24 @@ export function PantallaConteo({
         </div>
       </div>
 
+      {fallados.length > 0 && (
+        <div className="mb-4 rounded-lg border border-notfound bg-notfound-bg p-3.5">
+          <p className="font-medium text-notfound">
+            {fallados.length === 1
+              ? "1 escaneo no se pudo guardar en el servidor."
+              : `${fallados.length} escaneos no se pudieron guardar en el servidor.`}
+          </p>
+          <p className="mt-1 text-xs text-notfound/80">{fallados[0].ultimoError}</p>
+          <button
+            onClick={reintentarSync}
+            disabled={reintentando}
+            className="mt-2.5 rounded-md border border-notfound/50 px-3 py-1.5 text-sm font-medium text-notfound transition-colors hover:bg-notfound/10 disabled:opacity-50"
+          >
+            {reintentando ? "Reintentando…" : "Reintentar ahora"}
+          </button>
+        </div>
+      )}
+
       <TarjetaSugerencia conteoId={meta.conteoId} onResuelto={refrescarLineas} />
 
       {/* Input real de la cámara — se abre por código, no se ve nunca. */}
@@ -629,7 +681,10 @@ export function PantallaConteo({
           Deshacer
         </button>
         <button
-          onClick={() => setMostrarCantidadManual((v) => !v)}
+          onClick={() => {
+            setErrorCantidadManual(null);
+            setMostrarCantidadManual((v) => !v);
+          }}
           className="flex-1 rounded-md border border-line px-4 py-3 text-sm font-medium text-paper transition-colors hover:border-muted"
         >
           Cantidad manual
@@ -652,10 +707,18 @@ export function PantallaConteo({
 
       {mostrarCantidadManual && (
         <div className="mb-5 space-y-2.5 rounded-lg border border-line bg-ink-2 p-3.5">
+          {errorCantidadManual && (
+            <p className="rounded-md border border-notfound/30 bg-notfound-bg px-3 py-2 text-sm text-notfound">
+              {errorCantidadManual}
+            </p>
+          )}
           <input
             type="text"
             value={codigoManual}
-            onChange={(e) => setCodigoManual(e.target.value)}
+            onChange={(e) => {
+              setCodigoManual(e.target.value);
+              setErrorCantidadManual(null);
+            }}
             placeholder="Código de barras"
             className="w-full rounded-md border border-line bg-ink px-3 py-2.5 text-sm text-paper outline-none focus:border-brand"
           />
@@ -663,7 +726,10 @@ export function PantallaConteo({
             type="number"
             min={1}
             value={cantidadManual}
-            onChange={(e) => setCantidadManual(e.target.value)}
+            onChange={(e) => {
+              setCantidadManual(e.target.value);
+              setErrorCantidadManual(null);
+            }}
             className="w-full rounded-md border border-line bg-ink px-3 py-2.5 text-sm text-paper outline-none focus:border-brand"
           />
           <button

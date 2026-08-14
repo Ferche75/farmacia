@@ -421,3 +421,17 @@ Reportado en "Cantidad manual" y en el formulario nuevo de "Tomar foto" (cargar 
 Se agrega `onBlurPrincipal()`, que solo reenfoca el input de escaneo si de verdad no hay otro campo activo esperando texto (`mostrarCantidadManual`, `cargandoProducto` o `editando` en `null`/`false`) — si alguno lo está, no hace nada y deja que el usuario escriba donde clickeó. Se mantiene el comportamiento original para el caso que sí lo necesitaba: si el foco se pierde por accidente en medio del escaneo normal (click afuera de todo), se recupera solo para que el lector físico no quede "mudo".
 
 Sin migración — cambio de cliente puro. Typecheck + lint + `pnpm build` de `apps/conteo` limpios.
+
+## Manejo de errores visible en /conteo: "Agregar" mudo, y sincronización que fallaba en silencio (2026-08-14)
+
+Dos problemas relacionados, reportados juntos por el usuario:
+
+**1. El botón "Agregar" de Cantidad manual "no hacía nada".** No era un bug de click: si el campo "Código de barras" quedaba vacío o la cantidad en 0, la función simplemente hacía `return` sin avisar nada — ni error, ni cartel, nada visible. Se agrega validación con mensaje explícito ("Escribí un código de barras." / "La cantidad tiene que ser mayor a 0.") mostrado adentro del mismo panel, que se limpia solo al tocar cualquiera de los 2 campos. Además, `ejecutarEscaneo` ahora devuelve el resultado (antes no devolvía nada) — si el resultado no es "encontrado", la pantalla hace scroll automático hacia arriba, porque el cartel de resultado vive arriba del todo y el panel de Cantidad manual más abajo: sin el scroll, un "No encontrado" real podía pasar totalmente desapercibido y sentirse igual que "no pasó nada".
+
+**2. La sincronización con el servidor fallaba en silencio.** Pedido explícito: "de q me sirve q dejes avisos de errores en la consola y no en la pantalla? el cliente no va a revisar la consola". Se encontraron 2 gaps reales en `motor-sync.ts`:
+   - `sincronizarPendientes` marcaba TODO el lote como `sincronizado: 1` sin importar si `registrar_escaneos_batch` devolvía algunos códigos en `no_encontrados` (el código no matcheó ningún producto del lado del servidor, típicamente catálogo local desactualizado) — esos escaneos quedaban marcados como "listos" sin haberse guardado nunca, sin ningún rastro del error.
+   - Un fallo de red/RPC en `sincronizarDesconocidosPendientes` solo hacía `console.error` — invisible para cualquiera que no sea quien tiene la consola del navegador abierta.
+
+   Se agrega `intentos: number` + `ultimoError: string | null` a `EscaneoCola`/`EscaneoDesconocidoCola` (Dexie, sin bump de versión — son campos nuevos no indexados, no hace falta migrar el schema local). Cada fallo real contra el servidor (nunca "estamos offline", eso ni intenta) incrementa `intentos` y guarda el mensaje. `obtenerFallados()` (`motor-sync.ts`) junta ambas colas filtrando `intentos > 0`, y `pantalla-conteo.tsx` muestra un cartel rojo bien arriba de la pantalla (no el puntito chico del header, que solo decía "N sin sincronizar" — indistinguible de "todavía no tuvo la chance de mandarse") con el mensaje del último error y un botón "Reintentar ahora".
+
+Sin migración — todo el cambio es de cliente (IndexedDB local + UI). Typecheck + lint + `pnpm build` de `apps/conteo` limpios.
