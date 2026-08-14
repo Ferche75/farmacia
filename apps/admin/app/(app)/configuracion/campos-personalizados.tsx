@@ -64,7 +64,7 @@ export function CamposPersonalizados({ campos: camposIniciales }: { campos: Camp
   }
 
   return (
-    <div className="max-w-2xl space-y-4 rounded-lg border border-line bg-surface p-6">
+    <div className="space-y-4 rounded-lg border border-line bg-surface p-6">
       <div>
         <h2 className="text-sm font-semibold text-ink">Campos personalizados</h2>
         <p className="mt-1 text-xs text-muted">
@@ -82,7 +82,7 @@ export function CamposPersonalizados({ campos: camposIniciales }: { campos: Camp
       )}
 
       {campos.length > 0 && (
-        <ul className="space-y-1.5">
+        <ul className="grid max-w-2xl grid-cols-1 gap-1.5 sm:grid-cols-2">
           {campos.map((c) => (
             <li
               key={c.clave}
@@ -103,7 +103,7 @@ export function CamposPersonalizados({ campos: camposIniciales }: { campos: Camp
       )}
       {campos.length === 0 && <p className="text-sm text-muted">Todavía no definiste ninguno.</p>}
 
-      <div className="flex gap-2">
+      <div className="flex max-w-md gap-2">
         <input
           className="input"
           placeholder="Ej: Vencimiento del proveedor"

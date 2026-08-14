@@ -37,7 +37,7 @@ export function SucursalesBodegas({
   const router = useRouter();
 
   return (
-    <div className="space-y-8">
+    <div className="grid grid-cols-1 gap-6 rounded-lg border border-line bg-surface p-6 md:grid-cols-2">
       <SeccionSucursales empresaId={empresaId} sucursales={sucursales} supabase={supabase} router={router} />
       <SeccionBodegas empresaId={empresaId} sucursales={sucursales} bodegas={bodegas} supabase={supabase} router={router} />
     </div>

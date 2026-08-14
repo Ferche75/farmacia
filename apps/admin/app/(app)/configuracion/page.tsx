@@ -70,11 +70,9 @@ export default async function ConfiguracionPage() {
       <p className="mb-6 text-sm text-muted">
         Datos de contacto, sucursales y bodegas de tu empresa. Para NIT, país o usuarios, pedile al superadmin.
       </p>
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+      <div className="max-w-3xl space-y-8">
         <ConfiguracionForm empresa={empresa} />
         <SucursalesBodegas empresaId={perfil.empresaId} sucursales={sucursales ?? []} bodegas={bodegas ?? []} />
-      </div>
-      <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-2">
         <ConfigOperativa config={configOperativa} />
         <CamposPersonalizados campos={camposPersonalizados} />
       </div>

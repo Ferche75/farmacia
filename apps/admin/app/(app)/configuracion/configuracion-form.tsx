@@ -53,7 +53,12 @@ export function ConfiguracionForm({ empresa }: { empresa: EmpresaContacto }) {
   }
 
   return (
-    <div className="max-w-lg space-y-4 rounded-lg border border-line bg-surface p-6">
+    <div className="space-y-5 rounded-lg border border-line bg-surface p-6">
+      <div>
+        <h2 className="text-sm font-semibold text-ink">Datos de contacto</h2>
+        <p className="mt-1 text-xs text-muted">Lo que aparece en remitos, reportes y a quién contactar en una emergencia.</p>
+      </div>
+
       {error && (
         <p className="rounded-md border border-danger/20 bg-danger-soft px-3 py-2 text-sm text-danger">{error}</p>
       )}
@@ -66,47 +71,39 @@ export function ConfiguracionForm({ empresa }: { empresa: EmpresaContacto }) {
         <input value={nombre} onChange={(e) => setNombre(e.target.value)} required className="input" />
       </div>
 
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-ink">Teléfono</label>
-        <input value={telefono} onChange={(e) => setTelefono(e.target.value)} className="input" />
-      </div>
-
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-ink">Email</label>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="input"
-        />
-      </div>
-
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-ink">Dirección</label>
-        <input value={direccion} onChange={(e) => setDireccion(e.target.value)} className="input" />
-      </div>
-
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-ink">Ciudad</label>
-        <input value={ciudad} onChange={(e) => setCiudad(e.target.value)} className="input" />
-      </div>
-
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-ink">Contacto de emergencia — nombre</label>
-        <input
-          value={contactoEmergenciaNombre}
-          onChange={(e) => setContactoEmergenciaNombre(e.target.value)}
-          className="input"
-        />
-      </div>
-
-      <div>
-        <label className="mb-1.5 block text-sm font-medium text-ink">Contacto de emergencia — teléfono</label>
-        <input
-          value={contactoEmergenciaTelefono}
-          onChange={(e) => setContactoEmergenciaTelefono(e.target.value)}
-          className="input"
-        />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-ink">Teléfono</label>
+          <input value={telefono} onChange={(e) => setTelefono(e.target.value)} className="input" />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-ink">Email</label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="input" />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-ink">Dirección</label>
+          <input value={direccion} onChange={(e) => setDireccion(e.target.value)} className="input" />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-ink">Ciudad</label>
+          <input value={ciudad} onChange={(e) => setCiudad(e.target.value)} className="input" />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-ink">Contacto de emergencia — nombre</label>
+          <input
+            value={contactoEmergenciaNombre}
+            onChange={(e) => setContactoEmergenciaNombre(e.target.value)}
+            className="input"
+          />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-ink">Contacto de emergencia — teléfono</label>
+          <input
+            value={contactoEmergenciaTelefono}
+            onChange={(e) => setContactoEmergenciaTelefono(e.target.value)}
+            className="input"
+          />
+        </div>
       </div>
 
       <button
