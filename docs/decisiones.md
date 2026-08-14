@@ -391,3 +391,11 @@ Se unifica en un solo botón "Tomar foto": al elegir la foto, se comprime y se m
 **Efecto colateral importante, dicho explícitamente para que no se descubra solo**: esto deja sin ningún llamador a `registrarFotoDesconocidoNuevo` dentro de `apps/conteo` — ya no se crea NINGÚN desconocido nuevo por esta vía, así que el circuito de IA (n8n + Gemini, la tarjeta de sugerencia, `resolver_desconocido`) que se armó con esfuerzo esta misma sesión queda **inactivo para casos nuevos**. No se borró nada — la función, `TarjetaSugerencia`, el RPC y el workflow de n8n siguen intactos y compilando — por si más adelante se quiere reactivar (por ejemplo, como sugerencia automática que autocompleta el formulario mientras la IA responde en paralelo, en vez de ser el único camino). Si se prefiere recuperar el uso de la IA de alguna forma, es un pedido aparte.
 
 Typecheck + lint + `pnpm build` de `apps/conteo` limpios. No hay migración nueva — reusa `crear_producto_y_contar`.
+
+## Buscador de /productos: sumar código de barras y SKU (2026-08-14)
+
+El buscador de `apps/admin/productos` solo filtraba por `productos.nombre`. Se pidió que también busque por código de barras y "SKU" — en este esquema no existe una columna literal `sku`, lo más cercano es `productos_empresa.codigo_proveedor` (el código con el que la empresa identifica el producto internamente, ya usado así en el importador desde `20260812000000`).
+
+El código de barras vive en `codigos_barra` y el SKU en `productos_empresa` — dos tablas relacionadas, ninguna es `productos`. PostgREST permite filtrar por columnas de un recurso embebido dentro de un `.or()`, pero combinar 2 relaciones embebidas distintas en un solo filtro no es un patrón confiable para armar a ciegas sin Postgres real para probarlo (Docker sigue caído en este entorno). Se optó por lo más simple de razonar correctamente: dos consultas chicas aparte que resuelven qué `producto_id` matchea por código de barras o por SKU, y la consulta principal filtra por `nombre ilike término OR id in (esos ids)`.
+
+Sin migración — es una consulta nueva del lado del cliente, ninguna tabla ni RPC cambia. Typecheck + lint + `pnpm build` de `apps/admin` limpios.

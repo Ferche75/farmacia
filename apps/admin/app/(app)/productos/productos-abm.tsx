@@ -274,6 +274,35 @@ export function ProductosAbm({
   useEffect(() => {
     const t = setTimeout(async () => {
       setBuscando(true);
+      const termino = term.trim();
+
+      // El buscador cubre 3 campos que viven en 3 tablas distintas:
+      // nombre (productos), código de barras (codigos_barra) y SKU propio
+      // de la empresa (productos_empresa.codigo_proveedor). PostgREST
+      // puede filtrar por columnas de recursos embebidos dentro de un
+      // .or(), pero combinar 2 relaciones embebidas distintas en un solo
+      // filtro es frágil — más simple y confiable resolver los ids que
+      // matchean por código en 2 consultas chicas aparte, y filtrar la
+      // consulta principal por nombre O esos ids.
+      let idsPorCodigo: string[] = [];
+      if (termino) {
+        const [porBarra, porSku] = await Promise.all([
+          supabase.from("codigos_barra").select("producto_id").ilike("codigo_raw", `%${termino}%`).limit(50),
+          supabase
+            .from("productos_empresa")
+            .select("producto_id")
+            .eq("empresa_id", empresaId)
+            .ilike("codigo_proveedor", `%${termino}%`)
+            .limit(50),
+        ]);
+        idsPorCodigo = [
+          ...new Set([
+            ...(porBarra.data ?? []).map((r) => r.producto_id),
+            ...(porSku.data ?? []).map((r) => r.producto_id),
+          ]),
+        ];
+      }
+
       let query = supabase
         .from("productos")
         .select(
@@ -282,8 +311,11 @@ export function ProductosAbm({
         )
         .order("nombre")
         .range(pagina * TAMANO_PAGINA, pagina * TAMANO_PAGINA + TAMANO_PAGINA - 1);
-      if (term.trim()) {
-        query = query.ilike("nombre", `%${term.trim()}%`);
+      if (termino) {
+        const filtro = idsPorCodigo.length
+          ? `nombre.ilike.%${termino}%,id.in.(${idsPorCodigo.join(",")})`
+          : `nombre.ilike.%${termino}%`;
+        query = query.or(filtro);
       }
       const { data, count } = await query;
       const productos = (data ?? []) as unknown as ProductoFila[];
@@ -611,7 +643,7 @@ export function ProductosAbm({
       <div className="rounded-lg border border-line bg-surface p-8">
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Catálogo de productos</h1>
         <p className="mt-1.5 text-sm text-muted">
-          Buscador por nombre (usa el índice de similitud) y alta/edición manual. El catálogo es global — lo que
+          Buscador por nombre, código de barras o SKU, y alta/edición manual. El catálogo es global — lo que
           edités acá lo ven todas las empresas.
         </p>
 
@@ -625,7 +657,7 @@ export function ProductosAbm({
                 setTerm(e.target.value);
                 setPagina(0);
               }}
-              placeholder="Buscar por nombre…"
+              placeholder="Buscar por nombre, código de barras o SKU…"
               className="input pl-9"
             />
           </div>
