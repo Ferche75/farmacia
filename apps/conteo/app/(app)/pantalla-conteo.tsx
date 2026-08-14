@@ -14,7 +14,6 @@ import {
 import {
   esDesconocidoConocido,
   procesarReescaneoDesconocido,
-  registrarFotoDesconocidoNuevo,
   establecerCantidadDesconocido,
   obtenerFotoLocal,
   agregarProductoManualAProductoLocal,
@@ -85,8 +84,15 @@ export function PantallaConteo({
   const [cerrando, setCerrando] = useState(false);
   const [errorCierre, setErrorCierre] = useState<string | null>(null);
 
-  const [cargandoSinFoto, setCargandoSinFoto] = useState(false);
-  const [formSinFoto, setFormSinFoto] = useState({
+  // Formulario de carga que se abre apenas se saca la foto de un "No
+  // encontrado" — CONTEXTO.md / decisión 2026-08-14: sacar la foto Y
+  // completar los datos son un solo paso, no dos (la IA no es un paso
+  // obligatorio, quien cuenta carga el producto ahí mismo mirando la
+  // caja). `fotoCapturada` es solo de referencia en pantalla mientras se
+  // completa el form — no se sube ni se guarda en ningún lado.
+  const [cargandoProducto, setCargandoProducto] = useState(false);
+  const [fotoCapturada, setFotoCapturada] = useState<Blob | null>(null);
+  const [formCarga, setFormCarga] = useState({
     nombre: "",
     laboratorio: "",
     concentracionValor: "",
@@ -94,8 +100,8 @@ export function PantallaConteo({
     contenido: "",
     unidad: "",
   });
-  const [guardandoSinFoto, setGuardandoSinFoto] = useState(false);
-  const [errorSinFoto, setErrorSinFoto] = useState<string | null>(null);
+  const [guardandoProducto, setGuardandoProducto] = useState(false);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
   const refrescarLineas = useCallback(async () => {
     const todas = await db.lineas.where("conteoId").equals(meta.conteoId).toArray();
@@ -267,38 +273,56 @@ export function PantallaConteo({
     fotoInputRef.current?.click();
   }
 
-  function abrirCargaSinFoto() {
-    setFormSinFoto({
-      nombre: "",
-      laboratorio: "",
-      concentracionValor: "",
-      concentracionUnidad: "mg",
-      contenido: "",
-      unidad: "",
-    });
-    setErrorSinFoto(null);
-    setCargandoSinFoto(true);
+  // Sacar la foto y completar los datos son un solo paso: apenas se saca
+  // la foto se abre el formulario, ahí mismo, sin esperar a que la IA
+  // responda — la foto queda en pantalla como referencia para completarlo
+  // mirando la caja, pero no se sube ni se manda a ningún lado.
+  async function onFotoSeleccionada(e: React.ChangeEvent<HTMLInputElement>) {
+    const archivo = e.target.files?.[0];
+    e.target.value = ""; // permite volver a elegir el mismo archivo después
+    const esperando = esperandoFotoRef.current;
+    esperandoFotoRef.current = null;
+    if (!archivo || !esperando) return;
+
+    setSubiendoFoto(true);
+    try {
+      const comprimida = await comprimirImagen(archivo);
+      setFotoCapturada(comprimida);
+      setFormCarga({
+        nombre: "",
+        laboratorio: "",
+        concentracionValor: "",
+        concentracionUnidad: "mg",
+        contenido: "",
+        unidad: "",
+      });
+      setErrorCarga(null);
+      setCargandoProducto(true);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "No se pudo procesar la foto.");
+    } finally {
+      setSubiendoFoto(false);
+    }
   }
 
-  // Camino directo (sin foto, sin pasar por la tabla `desconocidos`) para
-  // cuando quien cuenta ya sabe qué es el producto — crear_producto_y_contar
-  // requiere estar online, es una llamada directa igual que "Aceptar" en
-  // TarjetaSugerencia, no se encola para sincronizar después.
-  async function guardarSinFoto() {
-    if (feedback?.tipo !== "no_encontrado" || !formSinFoto.nombre.trim()) return;
+  // crear_producto_y_contar requiere estar online — es una llamada
+  // directa igual que "Aceptar" en TarjetaSugerencia, no se encola para
+  // sincronizar después.
+  async function guardarProductoCargado() {
+    if (feedback?.tipo !== "no_encontrado" || !formCarga.nombre.trim()) return;
 
-    setGuardandoSinFoto(true);
-    setErrorSinFoto(null);
+    setGuardandoProducto(true);
+    setErrorCarga(null);
     try {
-      const concentracion = formSinFoto.concentracionValor.trim()
-        ? `${formSinFoto.concentracionValor.trim()} ${formSinFoto.concentracionUnidad}`
+      const concentracion = formCarga.concentracionValor.trim()
+        ? `${formCarga.concentracionValor.trim()} ${formCarga.concentracionUnidad}`
         : null;
       const nuevoProducto: NuevoProductoManual = {
-        nombre: formSinFoto.nombre.trim(),
-        laboratorio: formSinFoto.laboratorio || null,
+        nombre: formCarga.nombre.trim(),
+        laboratorio: formCarga.laboratorio || null,
         concentracion,
-        contenido: formSinFoto.contenido ? Number(formSinFoto.contenido) : null,
-        unidad: formSinFoto.unidad || null,
+        contenido: formCarga.contenido ? Number(formCarga.contenido) : null,
+        unidad: formCarga.unidad || null,
       };
 
       const supabase = createBrowserClient();
@@ -329,39 +353,12 @@ export function PantallaConteo({
         await refrescarPendientes();
       }
 
-      setCargandoSinFoto(false);
+      setCargandoProducto(false);
+      setFotoCapturada(null);
     } catch (e) {
-      setErrorSinFoto(e instanceof Error ? e.message : "No se pudo crear el producto.");
+      setErrorCarga(e instanceof Error ? e.message : "No se pudo crear el producto.");
     } finally {
-      setGuardandoSinFoto(false);
-      reenfocar();
-    }
-  }
-
-  async function onFotoSeleccionada(e: React.ChangeEvent<HTMLInputElement>) {
-    const archivo = e.target.files?.[0];
-    e.target.value = ""; // permite volver a elegir el mismo archivo después
-    const esperando = esperandoFotoRef.current;
-    esperandoFotoRef.current = null;
-    if (!archivo || !esperando) return;
-
-    setSubiendoFoto(true);
-    try {
-      const comprimida = await comprimirImagen(archivo);
-      const linea = await registrarFotoDesconocidoNuevo({
-        conteoId: meta.conteoId,
-        codigoRaw: esperando.codigoRaw,
-        codigoNorm: esperando.codigoNorm,
-        fotoComprimida: comprimida,
-      });
-      feedbackEncontrado();
-      setFeedback({ tipo: "desconocido_conocido", linea, foto: comprimida });
-      await refrescarLineas();
-      await refrescarPendientes();
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "No se pudo procesar la foto.");
-    } finally {
-      setSubiendoFoto(false);
+      setGuardandoProducto(false);
       reenfocar();
     }
   }
@@ -504,55 +501,55 @@ export function PantallaConteo({
           {feedback.tipo === "duplicado" && (
             <p className="font-medium text-duplicate">Duplicado — {feedback.codigoRaw}</p>
           )}
-          {feedback.tipo === "no_encontrado" && !cargandoSinFoto && (
+          {feedback.tipo === "no_encontrado" && !cargandoProducto && (
             <>
               <p className="mb-3 font-medium text-notfound">No encontrado — {feedback.codigoRaw}</p>
-              <div className="flex justify-center gap-2.5">
-                <button
-                  onClick={() => onClickTomarFoto(feedback.codigoRaw, feedback.codigoNorm)}
-                  disabled={subiendoFoto}
-                  className="rounded-md bg-notfound px-5 py-3 text-base font-medium text-ink transition-opacity hover:opacity-90 disabled:opacity-50"
-                >
-                  {subiendoFoto ? "Procesando…" : "Tomar foto"}
-                </button>
-                <button
-                  onClick={abrirCargaSinFoto}
-                  className="rounded-md border border-notfound/50 px-5 py-3 text-base font-medium text-notfound transition-colors hover:bg-notfound-bg"
-                >
-                  Cargar sin foto
-                </button>
-              </div>
+              <button
+                onClick={() => onClickTomarFoto(feedback.codigoRaw, feedback.codigoNorm)}
+                disabled={subiendoFoto}
+                className="rounded-md bg-notfound px-5 py-3 text-base font-medium text-ink transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {subiendoFoto ? "Procesando…" : "Tomar foto"}
+              </button>
             </>
           )}
-          {feedback.tipo === "no_encontrado" && cargandoSinFoto && (
+          {feedback.tipo === "no_encontrado" && cargandoProducto && (
             <div className="space-y-2 text-left">
               <p className="mb-1 text-center font-medium text-notfound">{feedback.codigoRaw}</p>
-              {errorSinFoto && <p className="text-sm text-notfound">{errorSinFoto}</p>}
+              {fotoCapturada && (
+                // eslint-disable-next-line @next/next/no-img-element -- foto local recién sacada, solo de referencia en pantalla (no se sube)
+                <img
+                  src={urlDeFoto(fotoCapturada) ?? undefined}
+                  alt=""
+                  className="mx-auto mb-2 h-32 rounded-md object-cover"
+                />
+              )}
+              {errorCarga && <p className="text-sm text-notfound">{errorCarga}</p>}
               <input
                 className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
-                value={formSinFoto.nombre}
-                onChange={(e) => setFormSinFoto({ ...formSinFoto, nombre: e.target.value })}
+                value={formCarga.nombre}
+                onChange={(e) => setFormCarga({ ...formCarga, nombre: e.target.value })}
                 placeholder="Nombre *"
                 autoFocus
               />
               <input
                 className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
-                value={formSinFoto.laboratorio}
-                onChange={(e) => setFormSinFoto({ ...formSinFoto, laboratorio: e.target.value })}
+                value={formCarga.laboratorio}
+                onChange={(e) => setFormCarga({ ...formCarga, laboratorio: e.target.value })}
                 placeholder="Laboratorio"
               />
               <div className="grid grid-cols-2 gap-2">
                 <input
                   className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
                   type="number"
-                  value={formSinFoto.concentracionValor}
-                  onChange={(e) => setFormSinFoto({ ...formSinFoto, concentracionValor: e.target.value })}
+                  value={formCarga.concentracionValor}
+                  onChange={(e) => setFormCarga({ ...formCarga, concentracionValor: e.target.value })}
                   placeholder="Concentración"
                 />
                 <select
                   className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
-                  value={formSinFoto.concentracionUnidad}
-                  onChange={(e) => setFormSinFoto({ ...formSinFoto, concentracionUnidad: e.target.value })}
+                  value={formCarga.concentracionUnidad}
+                  onChange={(e) => setFormCarga({ ...formCarga, concentracionUnidad: e.target.value })}
                 >
                   {UNIDADES_CONCENTRACION.map((u) => (
                     <option key={u} value={u}>
@@ -565,14 +562,14 @@ export function PantallaConteo({
                 <input
                   className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
                   type="number"
-                  value={formSinFoto.contenido}
-                  onChange={(e) => setFormSinFoto({ ...formSinFoto, contenido: e.target.value })}
+                  value={formCarga.contenido}
+                  onChange={(e) => setFormCarga({ ...formCarga, contenido: e.target.value })}
                   placeholder="Contenido"
                 />
                 <select
                   className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
-                  value={formSinFoto.unidad}
-                  onChange={(e) => setFormSinFoto({ ...formSinFoto, unidad: e.target.value })}
+                  value={formCarga.unidad}
+                  onChange={(e) => setFormCarga({ ...formCarga, unidad: e.target.value })}
                 >
                   <option value="">Presentación…</option>
                   {UNIDADES_PRESENTACION.map((u) => (
@@ -584,13 +581,19 @@ export function PantallaConteo({
               </div>
               <div className="flex items-center gap-3 pt-1">
                 <button
-                  onClick={guardarSinFoto}
-                  disabled={guardandoSinFoto || !formSinFoto.nombre.trim()}
+                  onClick={guardarProductoCargado}
+                  disabled={guardandoProducto || !formCarga.nombre.trim()}
                   className="flex-1 rounded-md bg-notfound px-3 py-2 text-sm font-medium text-ink disabled:opacity-50"
                 >
-                  {guardandoSinFoto ? "Guardando…" : "Guardar y contar"}
+                  {guardandoProducto ? "Guardando…" : "Guardar y contar"}
                 </button>
-                <button onClick={() => setCargandoSinFoto(false)} className="text-sm text-muted">
+                <button
+                  onClick={() => {
+                    setCargandoProducto(false);
+                    setFotoCapturada(null);
+                  }}
+                  className="text-sm text-muted"
+                >
                   Volver
                 </button>
               </div>

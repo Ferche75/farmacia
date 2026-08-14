@@ -381,3 +381,13 @@ Decisiones de diseño:
 - Nueva función local `agregarProductoManualAProductoLocal` (`motor-desconocidos.ts`) — contraparte del RPC para Dexie: escribe en `catalogo` (para que un re-escaneo futuro del mismo código matchee directo) y en `lineas` (para que aparezca ya contado en la lista), sin la fusión con `lineasDesconocidos` que sí necesita `migrarDesconocidoAProductoLocal` (acá el código nunca pasó por el camino de "desconocido conocido localmente").
 
 Migración nueva a correr en el SQL Editor de Supabase: `20260814000000_crear_producto_sin_foto.sql`. Typecheck + lint + `pnpm build` de `apps/admin` y `apps/conteo` limpios.
+
+## Corrección: sacar la foto y cargar los datos son UN solo paso, no dos (2026-08-14)
+
+El usuario aclaró que el diseño de arriba (botón separado "Cargar sin foto" al lado de "Tomar foto") no tenía sentido para él: en su cabeza, sacar la foto de un "No encontrado" ES precisamente el momento en el que se cargan los datos — no dos caminos alternativos. Confirmado explícitamente con una pregunta directa antes de tocar código de nuevo (ya me había equivocado dos veces seguidas con esta misma pantalla): apenas se saca la foto, se abre el formulario ahí mismo, al toque, y la IA deja de ser un paso obligatorio.
+
+Se unifica en un solo botón "Tomar foto": al elegir la foto, se comprime y se muestra en pantalla como referencia visual (para completar el formulario mirándola), pero **no se sube ni se guarda en ningún lado** — es solo una ayuda momentánea mientras se tipea. El submit va directo a `crear_producto_y_contar` (RPC de la decisión anterior), igual que en la versión "sin foto" que se reemplaza.
+
+**Efecto colateral importante, dicho explícitamente para que no se descubra solo**: esto deja sin ningún llamador a `registrarFotoDesconocidoNuevo` dentro de `apps/conteo` — ya no se crea NINGÚN desconocido nuevo por esta vía, así que el circuito de IA (n8n + Gemini, la tarjeta de sugerencia, `resolver_desconocido`) que se armó con esfuerzo esta misma sesión queda **inactivo para casos nuevos**. No se borró nada — la función, `TarjetaSugerencia`, el RPC y el workflow de n8n siguen intactos y compilando — por si más adelante se quiere reactivar (por ejemplo, como sugerencia automática que autocompleta el formulario mientras la IA responde en paralelo, en vez de ser el único camino). Si se prefiere recuperar el uso de la IA de alguna forma, es un pedido aparte.
+
+Typecheck + lint + `pnpm build` de `apps/conteo` limpios. No hay migración nueva — reusa `crear_producto_y_contar`.
