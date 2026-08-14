@@ -413,3 +413,11 @@ Se agrega `suscribirCambiosCatalogo()` (mismo archivo), que abre un canal de Rea
 Es un complemento, no un reemplazo: solo actúa con conexión — offline, la app sigue andando con el snapshot que ya tenía, igual que siempre. Se agregan `productos` y `codigos_barra` a la publicación `supabase_realtime` (antes solo estaba `desconocidos`); ninguna policy de RLS cambia, `productos_select`/`codigos_barra_select` (Fase 1) ya dejan leer a cualquier autenticado, Realtime respeta esas mismas policies.
 
 Migración nueva a correr en el SQL Editor de Supabase: `20260814000001_catalogo_realtime.sql`. Typecheck + lint + `pnpm build` de `apps/conteo` limpios.
+
+## Bug: no se podía escribir en ningún input de /conteo aparte del de escanear (2026-08-14)
+
+Reportado en "Cantidad manual" y en el formulario nuevo de "Tomar foto" (cargar producto): ningún campo aceptaba texto. Causa, preexistente (no introducida por los cambios de hoy, solo se hizo notoria con más formularios usándola): el input principal de escaneo tenía `onBlur={reenfocar}` — apenas CUALQUIER otro input de la pantalla recibía el foco, el principal lo perdía, disparaba `onBlur`, y `reenfocar()` le devolvía el foco al toque, antes de que el usuario pudiera tipear un solo carácter en el campo que había clickeado.
+
+Se agrega `onBlurPrincipal()`, que solo reenfoca el input de escaneo si de verdad no hay otro campo activo esperando texto (`mostrarCantidadManual`, `cargandoProducto` o `editando` en `null`/`false`) — si alguno lo está, no hace nada y deja que el usuario escriba donde clickeó. Se mantiene el comportamiento original para el caso que sí lo necesitaba: si el foco se pierde por accidente en medio del escaneo normal (click afuera de todo), se recupera solo para que el lector físico no quede "mudo".
+
+Sin migración — cambio de cliente puro. Typecheck + lint + `pnpm build` de `apps/conteo` limpios.

@@ -144,6 +144,17 @@ export function PantallaConteo({
     inputRef.current?.focus();
   }
 
+  // El input principal se reenfoca solo cuando pierde el foco por
+  // accidente (para que el lector físico no se quede "mudo" si alguien
+  // clickea afuera) — pero si lo que pasó fue que el foco se fue a
+  // "Cantidad manual", al formulario de cargar producto o a editar una
+  // cantidad, hay que dejarlo ahí: si reenfocamos igual, ningún otro
+  // input de la pantalla deja escribir un solo carácter.
+  function onBlurPrincipal() {
+    if (mostrarCantidadManual || cargandoProducto || editando !== null) return;
+    reenfocar();
+  }
+
   useEffect(() => {
     reenfocar();
   }, []);
@@ -457,7 +468,7 @@ export function PantallaConteo({
         spellCheck={false}
         onKeyDown={onKeyDown}
         onChange={onChangeInput}
-        onBlur={reenfocar}
+        onBlur={onBlurPrincipal}
         className="mb-5 w-full rounded-md border border-line bg-ink-2 px-4 py-3 text-center font-mono text-sm text-muted outline-none focus:border-brand"
         placeholder="Esperando lectura…"
       />
