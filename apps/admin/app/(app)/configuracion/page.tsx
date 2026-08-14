@@ -70,26 +70,11 @@ export default async function ConfiguracionPage() {
       <p className="mb-6 text-sm text-muted">
         Datos de contacto, sucursales y bodegas de tu empresa. Para NIT, país o usuarios, pedile al superadmin.
       </p>
-      {/*
-        Columnas CSS (no grid): el navegador balancea la altura total entre
-        columnas mirando el contenido real, en vez de forzar que cada fila
-        empate en alto (eso fue lo que dejaba huecos enormes con `grid`).
-        `break-inside-avoid` en cada tarjeta evita que el texto de una se
-        corte a la mitad al pasar de una columna a la otra.
-      */}
-      <div className="mx-auto max-w-6xl lg:columns-2 lg:gap-8">
-        <div className="mb-8 break-inside-avoid">
-          <ConfiguracionForm empresa={empresa} />
-        </div>
-        <div className="mb-8 break-inside-avoid">
-          <SucursalesBodegas empresaId={perfil.empresaId} sucursales={sucursales ?? []} bodegas={bodegas ?? []} />
-        </div>
-        <div className="mb-8 break-inside-avoid">
-          <ConfigOperativa config={configOperativa} />
-        </div>
-        <div className="mb-8 break-inside-avoid">
-          <CamposPersonalizados campos={camposPersonalizados} />
-        </div>
+      <div className="space-y-8">
+        <ConfiguracionForm empresa={empresa} />
+        <SucursalesBodegas empresaId={perfil.empresaId} sucursales={sucursales ?? []} bodegas={bodegas ?? []} />
+        <ConfigOperativa config={configOperativa} />
+        <CamposPersonalizados campos={camposPersonalizados} />
       </div>
     </div>
   );

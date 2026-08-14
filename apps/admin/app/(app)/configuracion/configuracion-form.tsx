@@ -66,12 +66,12 @@ export function ConfiguracionForm({ empresa }: { empresa: EmpresaContacto }) {
         <p className="rounded-md border border-ok/20 bg-ok-soft px-3 py-2 text-sm text-ok">Guardado.</p>
       )}
 
-      <div>
+      <div className="max-w-xl">
         <label className="mb-1.5 block text-sm font-medium text-ink">Nombre *</label>
         <input value={nombre} onChange={(e) => setNombre(e.target.value)} required className="input" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid max-w-3xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <label className="mb-1.5 block text-sm font-medium text-ink">Teléfono</label>
           <input value={telefono} onChange={(e) => setTelefono(e.target.value)} className="input" />
