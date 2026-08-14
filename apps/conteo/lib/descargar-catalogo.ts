@@ -3,6 +3,23 @@ import { db, type ProductoLocal } from "./db";
 
 const TAMANO_PAGINA = 1000;
 
+const SELECT_CODIGO_CON_PRODUCTO =
+  "codigo_norm, producto_id, unidades_por_codigo, productos(nombre, concentracion, forma, contenido, unidad, laboratorios(nombre))";
+
+function filaAProductoLocal(row: FilaCodigoBarra): ProductoLocal {
+  return {
+    codigoNorm: row.codigo_norm,
+    productoId: row.producto_id,
+    nombre: row.productos?.nombre ?? "(sin nombre)",
+    laboratorio: row.productos?.laboratorios?.nombre ?? null,
+    concentracion: row.productos?.concentracion ?? null,
+    forma: row.productos?.forma ?? null,
+    contenido: row.productos?.contenido ?? null,
+    unidad: row.productos?.unidad ?? null,
+    unidadesPorCodigo: row.unidades_por_codigo || 1,
+  };
+}
+
 export interface ProgresoDescarga {
   descargados: number;
   total: number;
@@ -48,23 +65,11 @@ export async function descargarCatalogo(
 
     const { data, error } = await supabase
       .from("codigos_barra")
-      .select(
-        "codigo_norm, producto_id, unidades_por_codigo, productos(nombre, concentracion, forma, contenido, unidad, laboratorios(nombre))"
-      )
+      .select(SELECT_CODIGO_CON_PRODUCTO)
       .range(desde, hasta);
     if (error) throw error;
 
-    const filas: ProductoLocal[] = ((data ?? []) as unknown as FilaCodigoBarra[]).map((row) => ({
-      codigoNorm: row.codigo_norm,
-      productoId: row.producto_id,
-      nombre: row.productos?.nombre ?? "(sin nombre)",
-      laboratorio: row.productos?.laboratorios?.nombre ?? null,
-      concentracion: row.productos?.concentracion ?? null,
-      forma: row.productos?.forma ?? null,
-      contenido: row.productos?.contenido ?? null,
-      unidad: row.productos?.unidad ?? null,
-      unidadesPorCodigo: row.unidades_por_codigo || 1,
-    }));
+    const filas: ProductoLocal[] = ((data ?? []) as unknown as FilaCodigoBarra[]).map(filaAProductoLocal);
 
     await db.catalogo.bulkPut(filas);
     descargados += filas.length;
@@ -80,6 +85,69 @@ export async function descargarCatalogo(
   });
 
   return descargados;
+}
+
+/** Mantiene el catálogo local al día MIENTRAS el conteo sigue abierto y
+ * hay conexión — sin esto, un producto cargado/editado desde apps/admin
+ * no aparece hasta cerrar el conteo y empezar uno nuevo (que es lo único
+ * que hoy re-descarga todo). No reemplaza la descarga inicial: es un
+ * complemento que solo actúa online, la app sigue funcionando offline con
+ * el snapshot que ya tiene — igual que el resto de esta app.
+ *
+ * - INSERT en codigos_barra: código nuevo (producto nuevo, o un código
+ *   agregado a uno que ya existía) — se pide esa fila con el join
+ *   completo y se guarda.
+ * - DELETE en codigos_barra: el código se sacó/desactivó — se borra del
+ *   catálogo local para que deje de matchear acá también.
+ * - UPDATE en productos: nombre/laboratorio/concentración/presentación
+ *   cambiaron — se refrescan TODOS los códigos locales de ese producto.
+ *
+ * Devuelve una función para cortar la suscripción (llamar al desmontar). */
+export function suscribirCambiosCatalogo(): () => void {
+  const supabase = createBrowserClient();
+
+  const canal = supabase
+    .channel("catalogo-cambios")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "codigos_barra" },
+      async (payload) => {
+        const codigoNorm = (payload.new as { codigo_norm: string }).codigo_norm;
+        const { data } = await supabase
+          .from("codigos_barra")
+          .select(SELECT_CODIGO_CON_PRODUCTO)
+          .eq("codigo_norm", codigoNorm)
+          .single();
+        if (data) await db.catalogo.put(filaAProductoLocal(data as unknown as FilaCodigoBarra));
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "codigos_barra" },
+      async (payload) => {
+        const codigoNorm = (payload.old as { codigo_norm?: string }).codigo_norm;
+        if (codigoNorm) await db.catalogo.delete(codigoNorm);
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "productos" },
+      async (payload) => {
+        const productoId = (payload.new as { id: string }).id;
+        const { data } = await supabase
+          .from("codigos_barra")
+          .select(SELECT_CODIGO_CON_PRODUCTO)
+          .eq("producto_id", productoId);
+        if (data?.length) {
+          await db.catalogo.bulkPut((data as unknown as FilaCodigoBarra[]).map(filaAProductoLocal));
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(canal);
+  };
 }
 
 /** Trae qué códigos YA están marcados como desconocidos en el servidor

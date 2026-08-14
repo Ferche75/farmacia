@@ -20,6 +20,7 @@ import {
 } from "@/lib/motor-desconocidos";
 import { comprimirImagen } from "@/lib/foto";
 import { UNIDADES_PRESENTACION, UNIDADES_CONCENTRACION } from "@/lib/campos-producto";
+import { suscribirCambiosCatalogo } from "@/lib/descargar-catalogo";
 import {
   sincronizarPendientes,
   sincronizarDesconocidosPendientes,
@@ -131,8 +132,12 @@ export function PantallaConteo({
     const detener = iniciarSyncAutomatico(empresaId, meta.conteoId, () => {
       refrescarPendientes();
     });
+    const detenerCatalogo = suscribirCambiosCatalogo();
 
-    return detener;
+    return () => {
+      detener();
+      detenerCatalogo();
+    };
   }, [empresaId, meta.conteoId, refrescarLineas, refrescarPendientes]);
 
   function reenfocar() {

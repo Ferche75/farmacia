@@ -399,3 +399,17 @@ El buscador de `apps/admin/productos` solo filtraba por `productos.nombre`. Se p
 El código de barras vive en `codigos_barra` y el SKU en `productos_empresa` — dos tablas relacionadas, ninguna es `productos`. PostgREST permite filtrar por columnas de un recurso embebido dentro de un `.or()`, pero combinar 2 relaciones embebidas distintas en un solo filtro no es un patrón confiable para armar a ciegas sin Postgres real para probarlo (Docker sigue caído en este entorno). Se optó por lo más simple de razonar correctamente: dos consultas chicas aparte que resuelven qué `producto_id` matchea por código de barras o por SKU, y la consulta principal filtra por `nombre ilike término OR id in (esos ids)`.
 
 Sin migración — es una consulta nueva del lado del cliente, ninguna tabla ni RPC cambia. Typecheck + lint + `pnpm build` de `apps/admin` limpios.
+
+## Catálogo en vivo durante el conteo: lo que se carga en admin aparece sin cerrar el conteo (2026-08-14)
+
+Se reportó que un producto cargado desde `apps/admin` no aparece en `apps/conteo`. Causa real: `descargarCatalogo()` (`lib/descargar-catalogo.ts`) baja el catálogo completo a IndexedDB **una sola vez**, al elegir un conteo — mientras ese conteo sigue abierto, por más que haya conexión, nunca se vuelve a consultar el servidor. La única forma de refrescarlo era cerrar el conteo y empezar uno nuevo. Confirmado con el usuario que el caso es específicamente **conteo ya en curso, catálogo ya descargado**.
+
+Se agrega `suscribirCambiosCatalogo()` (mismo archivo), que abre un canal de Realtime — igual mecanismo que ya usa la tarjeta de sugerencia para `desconocidos` (Fase 4) — y mantiene el catálogo local al día mientras `PantallaConteo` está montada:
+
+- **INSERT en `codigos_barra`** (producto nuevo, o código agregado a uno existente): se pide esa fila con el join completo y se guarda en `db.catalogo`.
+- **DELETE en `codigos_barra`**: se borra del catálogo local — para esto hizo falta `alter table codigos_barra replica identity full`, porque por default Postgres solo manda la primary key en el payload de un DELETE, no `codigo_norm` (que es la clave que usa Dexie).
+- **UPDATE en `productos`** (nombre/laboratorio/concentración/presentación editados): se refrescan todos los códigos locales de ese producto.
+
+Es un complemento, no un reemplazo: solo actúa con conexión — offline, la app sigue andando con el snapshot que ya tenía, igual que siempre. Se agregan `productos` y `codigos_barra` a la publicación `supabase_realtime` (antes solo estaba `desconocidos`); ninguna policy de RLS cambia, `productos_select`/`codigos_barra_select` (Fase 1) ya dejan leer a cualquier autenticado, Realtime respeta esas mismas policies.
+
+Migración nueva a correr en el SQL Editor de Supabase: `20260814000001_catalogo_realtime.sql`. Typecheck + lint + `pnpm build` de `apps/conteo` limpios.
