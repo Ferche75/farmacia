@@ -63,6 +63,7 @@ interface FormState {
   concentracion: string;
   contenido: string;
   unidad: string;
+  unidadModoLibre: boolean; // UI: true si "unidad" no está en UNIDADES_PRESENTACION (select en modo "Otro…") — no se persiste
   categoria: string;
   fabricante: string;
   requiereReceta: boolean;
@@ -88,6 +89,7 @@ const FORM_VACIO: FormState = {
   concentracion: "",
   contenido: "",
   unidad: "",
+  unidadModoLibre: false,
   categoria: "",
   fabricante: "",
   requiereReceta: false,
@@ -118,6 +120,17 @@ interface SucursalOpcion {
 
 const TAMANO_PAGINA = 50;
 
+// Mismo vocabulario fijo que ya usa /desconocidos (panel-detalle.tsx) para
+// este campo — ver docs/decisiones.md, 2026-08-14. Duplicado a propósito,
+// no compartido: cada pantalla de apps/admin ya sigue ese criterio.
+const UNIDADES_PRESENTACION = ["comprimidos", "capsulas", "ml", "g", "unidades", "sobres", "ampollas"];
+
+const CONTENIDOS_SUGERIDOS = ["10", "15", "20", "30", "50", "60", "100", "120", "150", "200", "250", "300", "500", "1000"];
+
+function esUnidadPersonalizada(unidad: string): boolean {
+  return unidad !== "" && !UNIDADES_PRESENTACION.includes(unidad);
+}
+
 // Todas las columnas mostrables de la tabla, aparte de Nombre y Acciones
 // (esas dos siempre van fijas). El orden acá es el default — el usuario
 // lo puede cambiar con los ↑/↓ del panel "Columnas", y la elección de
@@ -127,7 +140,8 @@ const TAMANO_PAGINA = 50;
 const COLUMNAS_FIJAS: { id: string; label: string }[] = [
   { id: "codigoBarra", label: "Código de barras" },
   { id: "laboratorio", label: "Laboratorio" },
-  { id: "presentacion", label: "Presentación" },
+  { id: "contenido", label: "Contenido" },
+  { id: "unidad", label: "Presentación" },
   { id: "concentracion", label: "Concentración" },
   { id: "principioActivo", label: "Principio activo" },
   { id: "categoria", label: "Categoría" },
@@ -141,7 +155,7 @@ const COLUMNAS_FIJAS: { id: string; label: string }[] = [
 // Default deliberadamente angosto — mostrar las 11 columnas de una era
 // justamente la queja de "esto es un asco a nivel diseño". El resto
 // sigue a un click en "Columnas", no se pierde nada.
-const COLUMNAS_VISIBLES_DEFAULT = ["codigoBarra", "laboratorio", "presentacion", "estado"];
+const COLUMNAS_VISIBLES_DEFAULT = ["codigoBarra", "laboratorio", "contenido", "unidad", "estado"];
 
 const LOCALSTORAGE_KEY_COLUMNAS = "farmacia_productos_columnas_v1";
 
@@ -448,6 +462,7 @@ export function ProductosAbm({
       concentracion: p.concentracion ?? "",
       contenido: p.contenido != null ? String(p.contenido) : "",
       unidad: p.unidad ?? "",
+      unidadModoLibre: esUnidadPersonalizada(p.unidad ?? ""),
       categoria: p.categoria ?? "",
       fabricante: p.fabricante ?? "",
       requiereReceta: p.requiere_receta,
@@ -604,8 +619,10 @@ export function ProductosAbm({
         );
       case "laboratorio":
         return p.laboratorios?.nombre ?? "—";
-      case "presentacion":
-        return p.contenido != null ? `${p.contenido} ${p.unidad ?? ""}`.trim() : "—";
+      case "contenido":
+        return p.contenido != null ? String(p.contenido) : "—";
+      case "unidad":
+        return p.unidad ?? "—";
       case "concentracion":
         return p.concentracion ?? "—";
       case "principioActivo":
@@ -902,13 +919,6 @@ export function ProductosAbm({
                   onChange={(e) => setForm({ ...form, concentracion: e.target.value })}
                 />
               </Campo>
-              <Campo label="Unidad">
-                <input
-                  className="input"
-                  value={form.unidad}
-                  onChange={(e) => setForm({ ...form, unidad: e.target.value })}
-                />
-              </Campo>
               <Campo label="Categoría / línea">
                 <input
                   className="input"
@@ -925,14 +935,56 @@ export function ProductosAbm({
               </Campo>
             </div>
 
-            <Campo label="Contenido">
-              <input
-                type="number"
-                className="input"
-                value={form.contenido}
-                onChange={(e) => setForm({ ...form, contenido: e.target.value })}
-              />
-            </Campo>
+            <div className="grid grid-cols-2 gap-4">
+              <Campo label="Contenido">
+                <input
+                  type="number"
+                  className="input"
+                  list="contenido-sugerencias"
+                  value={form.contenido}
+                  onChange={(e) => setForm({ ...form, contenido: e.target.value })}
+                />
+                <datalist id="contenido-sugerencias">
+                  {CONTENIDOS_SUGERIDOS.map((v) => (
+                    <option key={v} value={v} />
+                  ))}
+                </datalist>
+                <p className="mt-1 text-xs text-muted">
+                  Cantidad numérica del envase, sin la unidad. Ej: un jarabe de 150 ml → escribí 150 acá y elegí
+                  &quot;ml&quot; en Presentación.
+                </p>
+              </Campo>
+              <Campo label="Presentación">
+                <select
+                  className="input"
+                  value={form.unidadModoLibre ? "__otro__" : form.unidad}
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    if (valor === "__otro__") {
+                      setForm({ ...form, unidad: "", unidadModoLibre: true });
+                    } else {
+                      setForm({ ...form, unidad: valor, unidadModoLibre: false });
+                    }
+                  }}
+                >
+                  <option value="">Presentación…</option>
+                  {UNIDADES_PRESENTACION.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
+                  <option value="__otro__">Otro…</option>
+                </select>
+                {form.unidadModoLibre && (
+                  <input
+                    className="input mt-2"
+                    value={form.unidad}
+                    onChange={(e) => setForm({ ...form, unidad: e.target.value })}
+                    placeholder="Escribí la presentación"
+                  />
+                )}
+              </Campo>
+            </div>
 
             <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-ink">
               <label className="flex items-center gap-2">
