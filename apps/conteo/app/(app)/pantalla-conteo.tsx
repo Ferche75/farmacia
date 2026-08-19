@@ -1,13 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createBrowserClient, cerrarConteo, crearProductoYContar, type NuevoProductoManual } from "@farmacia/db";
+import {
+  createBrowserClient,
+  cerrarConteo,
+  crearProductoYContar,
+  normalizarCodigo,
+  type NuevoProductoManual,
+} from "@farmacia/db";
 import { db, type LineaLocal, type LineaDesconocidoLocal, type MetaConteo } from "@/lib/db";
 import {
   procesarEscaneo,
   deshacerUltimoEscaneo,
   establecerCantidad,
   generarUuid,
+  generarCodigoInterno,
   dispositivoActual,
   type ResultadoEscaneo,
 } from "@/lib/motor-escaneo";
@@ -327,6 +334,20 @@ export function PantallaConteo({
   function onClickTomarFoto(codigoRaw: string, codigoNorm: string) {
     esperandoFotoRef.current = { codigoRaw, codigoNorm };
     fotoInputRef.current?.click();
+  }
+
+  // "Producto sin código de barras": mismo circuito que "Tomar foto" desde
+  // un "No encontrado" (foto opcional de referencia + formulario), pero
+  // sin haber escaneado nada antes — acá se genera un código interno
+  // propio (rango 20-29, reservado por GS1 para uso interno/en tienda, no
+  // choca nunca con un código real de fábrica) para que el producto quede
+  // matcheable la próxima vez igual que cualquier otro, por ejemplo si se
+  // le pega una etiqueta impresa con ese mismo código.
+  function onClickSinCodigo() {
+    const codigoRaw = generarCodigoInterno();
+    const codigoNorm = normalizarCodigo(codigoRaw).codigoNorm ?? codigoRaw;
+    setFeedback({ tipo: "no_encontrado", codigoRaw, codigoNorm });
+    onClickTomarFoto(codigoRaw, codigoNorm);
   }
 
   // Sacar la foto y completar los datos son un solo paso: apenas se saca
@@ -703,6 +724,14 @@ export function PantallaConteo({
           Cantidad manual
         </button>
       </div>
+
+      <button
+        onClick={onClickSinCodigo}
+        disabled={subiendoFoto || cargandoProducto}
+        className="mb-5 w-full rounded-md border border-line px-4 py-3 text-sm font-medium text-paper transition-colors hover:border-muted disabled:opacity-50"
+      >
+        Producto sin código de barras
+      </button>
 
       <button
         onClick={abrirConfirmacionCierre}

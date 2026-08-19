@@ -34,6 +34,28 @@ export function generarUuid(): string {
   });
 }
 
+// Dígito verificador EAN-13 estándar: posiciones impares (1ª, 3ª...) ×1,
+// pares ×3, contando desde la izquierda sobre los primeros 12 dígitos.
+function digitoVerificadorEan13(doceDigitos: string): number {
+  let suma = 0;
+  for (let i = 0; i < 12; i++) {
+    suma += Number(doceDigitos[i]) * (i % 2 === 0 ? 1 : 3);
+  }
+  return (10 - (suma % 10)) % 10;
+}
+
+// Código para productos sin código de barras propio ("Producto sin código
+// de barras" en pantalla-conteo.tsx). Prefijo 20-29: GS1 lo reserva para
+// uso interno/en tienda, así que nunca coincide con el código real de
+// fábrica de ningún producto — es seguro asignarlo acá sin consultar al
+// servidor. 12 dígitos (prefijo + timestamp + random) + 1 verificador = 13,
+// mismo largo que un EAN-13 real, por si se termina imprimiendo en una
+// etiqueta.
+export function generarCodigoInterno(): string {
+  const cuerpo = "20" + Date.now().toString().slice(-9) + Math.floor(Math.random() * 10);
+  return cuerpo + digitoVerificadorEan13(cuerpo);
+}
+
 export function formatearPresentacion(p: {
   concentracion: string | null;
   forma: string | null;
