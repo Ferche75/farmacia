@@ -117,6 +117,7 @@ export function PantallaConteo({
   const [formCarga, setFormCarga] = useState({
     nombre: "",
     laboratorio: "",
+    sku: "",
     concentracionValor: "",
     concentracionUnidad: "mg",
     contenido: "",
@@ -379,6 +380,7 @@ export function PantallaConteo({
       setFormCarga({
         nombre: "",
         laboratorio: "",
+        sku: "",
         concentracionValor: "",
         concentracionUnidad: "mg",
         contenido: "",
@@ -415,6 +417,7 @@ export function PantallaConteo({
           ? Number(formCarga.contenido)
           : null,
         unidad: formCarga.unidad || null,
+        codigo_proveedor: formCarga.sku.trim() || null,
       };
 
       const supabase = createBrowserClient();
@@ -495,6 +498,11 @@ export function PantallaConteo({
   const totalUnidades =
     lineas.reduce((acc, l) => acc + l.cantidad, 0) +
     lineasDesc.reduce((acc, l) => acc + l.cantidad, 0);
+
+  const sugerenciasCantidadManual =
+    mostrarCantidadManual && codigoManual.trim().length >= 2
+      ? lineas.filter((l) => l.nombre.toLowerCase().includes(codigoManual.trim().toLowerCase())).slice(0, 5)
+      : [];
 
   const feedbackEstilo =
     feedback?.tipo === "encontrado" || feedback?.tipo === "desconocido_conocido"
@@ -615,7 +623,7 @@ export function PantallaConteo({
             <>
               <p className="mb-3 font-medium text-notfound">
                 {feedback.origenInterno
-                  ? "Código interno asignado"
+                  ? "Código de barras interno asignado"
                   : `No encontrado — ${feedback.codigoRaw}`}
               </p>
               <button
@@ -630,7 +638,9 @@ export function PantallaConteo({
           {feedback.tipo === "no_encontrado" && cargandoProducto && (
             <div className="space-y-2 text-left">
               <p className="mb-1 text-center font-medium text-notfound">
-                {feedback.origenInterno ? `Código interno: ${feedback.codigoRaw}` : feedback.codigoRaw}
+                {feedback.origenInterno
+                  ? `Código de barras interno: ${feedback.codigoRaw}`
+                  : feedback.codigoRaw}
               </p>
               {fotoCapturada && (
                 // eslint-disable-next-line @next/next/no-img-element -- foto local recién sacada, solo de referencia en pantalla (no se sube)
@@ -653,6 +663,12 @@ export function PantallaConteo({
                 value={formCarga.laboratorio}
                 onChange={(e) => setFormCarga({ ...formCarga, laboratorio: e.target.value })}
                 placeholder="Laboratorio"
+              />
+              <input
+                className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                value={formCarga.sku}
+                onChange={(e) => setFormCarga({ ...formCarga, sku: e.target.value })}
+                placeholder="SKU / código de proveedor (opcional)"
               />
               <div className="grid grid-cols-2 gap-2">
                 <input
@@ -786,9 +802,25 @@ export function PantallaConteo({
               setCodigoManual(e.target.value);
               setErrorCantidadManual(null);
             }}
-            placeholder="Código de barras"
+            placeholder="Código o nombre"
             className="w-full rounded-md border border-line bg-ink px-3 py-2.5 text-sm text-paper outline-none focus:border-brand"
           />
+          {sugerenciasCantidadManual.length > 0 && (
+            <ul className="space-y-1 rounded-md border border-line bg-ink p-1.5">
+              {sugerenciasCantidadManual.map((l) => (
+                <li key={l.id}>
+                  <button
+                    type="button"
+                    onClick={() => setCodigoManual(l.codigoNorm)}
+                    className="w-full rounded px-2 py-1.5 text-left text-sm text-paper hover:bg-ink-2"
+                  >
+                    <span className="block truncate">{l.nombre}</span>
+                    {l.presentacion && <span className="block truncate text-xs text-muted">{l.presentacion}</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <input
             type="text"
             inputMode="numeric"
@@ -823,6 +855,7 @@ export function PantallaConteo({
               <div className="min-w-0">
                 <p className="truncate text-sm text-paper">{l.nombre}</p>
                 {l.presentacion && <p className="truncate text-xs text-muted">{l.presentacion}</p>}
+                <p className="truncate font-mono text-xs text-muted/70">{l.codigoNorm}</p>
               </div>
               {editando === l.id ? (
                 <div className="flex shrink-0 items-center gap-2">

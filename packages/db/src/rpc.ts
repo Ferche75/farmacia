@@ -514,6 +514,10 @@ export interface NuevoProductoManual {
   concentracion?: string | null;
   contenido?: number | null;
   unidad?: string | null;
+  /** SKU / código propio de la empresa (productos_empresa.codigo_proveedor)
+   * — no confundir con el código de barras (codigos_barra), que es otra
+   * cosa. Opcional. */
+  codigo_proveedor?: string | null;
 }
 
 /** Camino paralelo a registrar_escaneo_desconocido/resolver_desconocido:
