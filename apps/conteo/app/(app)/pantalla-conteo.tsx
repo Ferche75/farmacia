@@ -56,7 +56,7 @@ const IDLE_MS = 80;
 type Feedback =
   | { tipo: "encontrado"; linea: LineaLocal; unidadesPorCodigo: number }
   | { tipo: "desconocido_conocido"; linea: LineaDesconocidoLocal; foto: Blob | null }
-  | { tipo: "no_encontrado"; codigoRaw: string; codigoNorm: string }
+  | { tipo: "no_encontrado"; codigoRaw: string; codigoNorm: string; origenInterno?: boolean }
   | { tipo: "duplicado"; codigoRaw: string }
   | { tipo: "codigo_invalido"; codigoRaw: string }
   | null;
@@ -64,6 +64,17 @@ type Feedback =
 function urlDeFoto(blob: Blob | null): string | null {
   if (!blob) return null;
   return URL.createObjectURL(blob);
+}
+
+// Los campos numéricos van como type="text" + inputMode (en varios
+// teclados de Android, un type="number" solo deja cambiar el valor con
+// las flechitas y no acepta que se tipeen los dígitos), así que el
+// filtrado del valor se hace a mano acá.
+function limpiarNumeroDecimal(valor: string): string {
+  const limpio = valor.replace(/[^0-9.]/g, "");
+  const primerPunto = limpio.indexOf(".");
+  if (primerPunto === -1) return limpio;
+  return limpio.slice(0, primerPunto + 1) + limpio.slice(primerPunto + 1).replace(/\./g, "");
 }
 
 export function PantallaConteo({
@@ -346,7 +357,7 @@ export function PantallaConteo({
   function onClickSinCodigo() {
     const codigoRaw = generarCodigoInterno();
     const codigoNorm = normalizarCodigo(codigoRaw).codigoNorm ?? codigoRaw;
-    setFeedback({ tipo: "no_encontrado", codigoRaw, codigoNorm });
+    setFeedback({ tipo: "no_encontrado", codigoRaw, codigoNorm, origenInterno: true });
     onClickTomarFoto(codigoRaw, codigoNorm);
   }
 
@@ -398,7 +409,11 @@ export function PantallaConteo({
         nombre: formCarga.nombre.trim(),
         laboratorio: formCarga.laboratorio || null,
         concentracion,
-        contenido: formCarga.contenido ? Number(formCarga.contenido) : null,
+        // El input filtra a mano (ver limpiarNumeroDecimal), así que puede
+        // quedar un "." suelto mientras se tipea — Number(".") es NaN.
+        contenido: Number.isFinite(Number(formCarga.contenido)) && formCarga.contenido
+          ? Number(formCarga.contenido)
+          : null,
         unidad: formCarga.unidad || null,
       };
 
@@ -598,7 +613,11 @@ export function PantallaConteo({
           )}
           {feedback.tipo === "no_encontrado" && !cargandoProducto && (
             <>
-              <p className="mb-3 font-medium text-notfound">No encontrado — {feedback.codigoRaw}</p>
+              <p className="mb-3 font-medium text-notfound">
+                {feedback.origenInterno
+                  ? "Código interno asignado"
+                  : `No encontrado — ${feedback.codigoRaw}`}
+              </p>
               <button
                 onClick={() => onClickTomarFoto(feedback.codigoRaw, feedback.codigoNorm)}
                 disabled={subiendoFoto}
@@ -610,7 +629,9 @@ export function PantallaConteo({
           )}
           {feedback.tipo === "no_encontrado" && cargandoProducto && (
             <div className="space-y-2 text-left">
-              <p className="mb-1 text-center font-medium text-notfound">{feedback.codigoRaw}</p>
+              <p className="mb-1 text-center font-medium text-notfound">
+                {feedback.origenInterno ? `Código interno: ${feedback.codigoRaw}` : feedback.codigoRaw}
+              </p>
               {fotoCapturada && (
                 // eslint-disable-next-line @next/next/no-img-element -- foto local recién sacada, solo de referencia en pantalla (no se sube)
                 <img
@@ -636,9 +657,12 @@ export function PantallaConteo({
               <div className="grid grid-cols-2 gap-2">
                 <input
                   className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={formCarga.concentracionValor}
-                  onChange={(e) => setFormCarga({ ...formCarga, concentracionValor: e.target.value })}
+                  onChange={(e) =>
+                    setFormCarga({ ...formCarga, concentracionValor: limpiarNumeroDecimal(e.target.value) })
+                  }
                   placeholder="Concentración"
                 />
                 <select
@@ -656,9 +680,10 @@ export function PantallaConteo({
               <div className="grid grid-cols-2 gap-2">
                 <input
                   className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={formCarga.contenido}
-                  onChange={(e) => setFormCarga({ ...formCarga, contenido: e.target.value })}
+                  onChange={(e) => setFormCarga({ ...formCarga, contenido: limpiarNumeroDecimal(e.target.value) })}
                   placeholder="Contenido"
                 />
                 <select
@@ -765,11 +790,11 @@ export function PantallaConteo({
             className="w-full rounded-md border border-line bg-ink px-3 py-2.5 text-sm text-paper outline-none focus:border-brand"
           />
           <input
-            type="number"
-            min={1}
+            type="text"
+            inputMode="numeric"
             value={cantidadManual}
             onChange={(e) => {
-              setCantidadManual(e.target.value);
+              setCantidadManual(e.target.value.replace(/\D/g, ""));
               setErrorCantidadManual(null);
             }}
             autoFocus
@@ -802,10 +827,10 @@ export function PantallaConteo({
               {editando === l.id ? (
                 <div className="flex shrink-0 items-center gap-2">
                   <input
-                    type="number"
-                    min={0}
+                    type="text"
+                    inputMode="numeric"
                     value={valorEdicion}
-                    onChange={(e) => setValorEdicion(e.target.value)}
+                    onChange={(e) => setValorEdicion(e.target.value.replace(/\D/g, ""))}
                     className="w-16 rounded-md border border-line bg-ink px-2 py-1 text-right text-paper outline-none focus:border-brand"
                     autoFocus
                   />
@@ -836,10 +861,10 @@ export function PantallaConteo({
               {editando === l.id ? (
                 <div className="flex shrink-0 items-center gap-2">
                   <input
-                    type="number"
-                    min={0}
+                    type="text"
+                    inputMode="numeric"
                     value={valorEdicion}
-                    onChange={(e) => setValorEdicion(e.target.value)}
+                    onChange={(e) => setValorEdicion(e.target.value.replace(/\D/g, ""))}
                     className="w-16 rounded-md border border-line bg-ink px-2 py-1 text-right text-paper outline-none focus:border-brand"
                     autoFocus
                   />
