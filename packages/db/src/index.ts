@@ -25,6 +25,7 @@ export {
   resolverDesconocido,
   crearProductoYContar,
   subirFotoDesconocido,
+  generarCodigoInvitacionPdv,
 } from "./rpc";
 export type {
   ProductoEncontrado,
@@ -49,4 +50,5 @@ export type {
   ResultadoEscaneoDesconocido,
   NuevoProductoDesdeIA,
   NuevoProductoManual,
+  CodigoInvitacionPdv,
 } from "./rpc";

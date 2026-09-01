@@ -26,3 +26,6 @@ dist/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# pdvlat es un repo git aparte, no un submódulo declarado
+/pdvlat/

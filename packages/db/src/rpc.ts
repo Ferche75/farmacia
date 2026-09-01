@@ -568,3 +568,40 @@ export async function subirFotoDesconocido(
   if (error) throw error;
   return path;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Integración con el POS externo pdvlat
+// ═══════════════════════════════════════════════════════════════
+// Solo se expone acá el RPC que se llama DESDE EL PANEL con sesión de
+// usuario. registrar_venta y vincular_integracion_pdv no tienen wrapper a
+// propósito: tienen EXECUTE revocado a authenticated y solo los puede
+// llamar la service_role key desde los route handlers de
+// apps/admin/app/api/pdvlat/ — un wrapper de cliente para ellos sería una
+// invitación a usarlos mal.
+
+export interface CodigoInvitacionPdv {
+  empresa_id: string;
+  /** null si la integración ya se vinculó y todavía no se pidió uno nuevo. */
+  codigo_invitacion: string | null;
+  codigo_expira_at: string | null;
+  vinculado: boolean;
+  tenant_id_pdvlat: string | null;
+}
+
+/** Genera (o renueva) el código de invitación de un solo uso que el
+ * operador de pdvlat canjea contra POST /api/pdvlat/vincular para recibir
+ * sus credenciales. Solo admin/gerente/superadmin.
+ *
+ * `empresaId` se deja sin pasar en el uso normal: el RPC opera sobre
+ * mi_empresa_id(). Solo el superadmin puede mandar otra empresa. */
+export async function generarCodigoInvitacionPdv(
+  supabase: SupabaseClient<Database>,
+  empresaId?: string
+): Promise<CodigoInvitacionPdv> {
+  const { data, error } = await supabase.rpc("generar_codigo_invitacion_pdv", {
+    p_empresa_id: empresaId ?? null,
+  });
+
+  if (error) throw error;
+  return data as unknown as CodigoInvitacionPdv;
+}

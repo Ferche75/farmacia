@@ -536,6 +536,104 @@ export interface Database {
           },
         ];
       };
+      movimientos_stock: {
+        Row: {
+          id: string;
+          empresa_id: string;
+          sucursal_id: string;
+          bodega_id: string | null;
+          producto_id: string;
+          tipo: "ingreso" | "venta" | "ajuste";
+          delta: number;
+          referencia: string | null;
+          /** null = lo generó una integración externa (pdvlat), que no
+           * tiene un perfil de Farmacia detrás — ver
+           * supabase/migrations/20260901000000_integracion_pdvlat_stock.sql */
+          usuario_id: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          empresa_id: string;
+          sucursal_id: string;
+          bodega_id?: string | null;
+          producto_id: string;
+          tipo: "ingreso" | "venta" | "ajuste";
+          delta: number;
+          referencia?: string | null;
+          usuario_id?: string | null;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["movimientos_stock"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "movimientos_stock_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "movimientos_stock_sucursal_id_fkey";
+            columns: ["sucursal_id"];
+            isOneToOne: false;
+            referencedRelation: "sucursales";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "movimientos_stock_bodega_id_fkey";
+            columns: ["bodega_id"];
+            isOneToOne: false;
+            referencedRelation: "bodegas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "movimientos_stock_producto_id_fkey";
+            columns: ["producto_id"];
+            isOneToOne: false;
+            referencedRelation: "productos";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      integraciones_pdv: {
+        Row: {
+          id: string;
+          empresa_id: string;
+          api_key: string;
+          api_secret: string;
+          codigo_invitacion: string | null;
+          codigo_expira_at: string | null;
+          tenant_id_pdvlat: string | null;
+          vinculado_at: string | null;
+          activo: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          empresa_id: string;
+          api_key: string;
+          api_secret: string;
+          codigo_invitacion?: string | null;
+          codigo_expira_at?: string | null;
+          tenant_id_pdvlat?: string | null;
+          vinculado_at?: string | null;
+          activo?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["integraciones_pdv"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "integraciones_pdv_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: true;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       mapeos_columnas: {
         Row: {
           id: string;
@@ -671,6 +769,35 @@ export interface Database {
           p_delta?: number;
           p_dispositivo?: string | null;
         };
+        Returns: Json;
+      };
+      // ── Integración con el POS externo pdvlat ──────────────────
+      // (supabase/migrations/20260901000000_integracion_pdvlat_stock.sql)
+      /** SECURITY INVOKER: filtra por la RLS de quien llama. */
+      stock_actual: {
+        Args: { p_empresa_id: string; p_producto_id: string; p_sucursal_id?: string | null };
+        Returns: number;
+      };
+      /** Solo service_role (EXECUTE revocado a anon/authenticated) — se
+       * llama desde apps/admin/app/api/pdvlat/ventas, nunca del browser. */
+      registrar_venta: {
+        Args: {
+          p_empresa_id: string;
+          p_sucursal_id: string;
+          p_referencia: string;
+          p_lineas: Json;
+          p_bodega_id?: string | null;
+        };
+        Returns: Json;
+      };
+      generar_codigo_invitacion_pdv: {
+        Args: { p_empresa_id?: string | null };
+        Returns: Json;
+      };
+      /** Solo service_role — devuelve credenciales, lo llama
+       * apps/admin/app/api/pdvlat/vincular. */
+      vincular_integracion_pdv: {
+        Args: { p_codigo: string; p_tenant_id: string };
         Returns: Json;
       };
       actualizar_usuario_superadmin: {

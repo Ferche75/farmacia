@@ -6,6 +6,7 @@ import { ConfiguracionForm } from "./configuracion-form";
 import { SucursalesBodegas } from "./sucursales-bodegas";
 import { ConfigOperativa } from "./config-operativa";
 import { CamposPersonalizados } from "./campos-personalizados";
+import { IntegracionPdv, type EstadoIntegracionPdv } from "./integracion-pdv";
 
 export const dynamic = "force-dynamic";
 
@@ -97,6 +98,28 @@ export default async function ConfiguracionPage() {
 
   if (errorBodegas) throw new Error(`No se pudieron cargar las bodegas: ${errorBodegas.message}`);
 
+  // maybeSingle y no single: la fila de integraciones_pdv recién existe
+  // cuando alguien genera el primer código. api_key/api_secret NO se
+  // seleccionan — el panel no los necesita para nada (viajan una sola vez,
+  // al canjear el código, ver /api/pdvlat/vincular) y así no terminan en
+  // el HTML que se manda al browser.
+  const { data: integracion, error: errorIntegracion } = await supabase
+    .from("integraciones_pdv")
+    .select("codigo_invitacion, codigo_expira_at, tenant_id_pdvlat, vinculado_at")
+    .eq("empresa_id", perfil.empresaId)
+    .maybeSingle();
+
+  if (errorIntegracion)
+    throw new Error(`No se pudo cargar la integración con el punto de venta: ${errorIntegracion.message}`);
+
+  const estadoIntegracion: EstadoIntegracionPdv = {
+    vinculado: integracion?.vinculado_at != null,
+    tenantIdPdvlat: integracion?.tenant_id_pdvlat ?? null,
+    vinculadoAt: integracion?.vinculado_at ?? null,
+    codigoInvitacion: integracion?.codigo_invitacion ?? null,
+    codigoExpiraAt: integracion?.codigo_expira_at ?? null,
+  };
+
   return (
     <div>
       <h1 className="mb-1 text-2xl font-semibold tracking-tight text-ink">Mi empresa</h1>
@@ -130,6 +153,13 @@ export default async function ConfiguracionPage() {
           descripcion="Tus propios campos: aparecen en la ficha de producto y como columna en la tabla. Por ahora se cargan a mano (todavía no se mapean desde el importador masivo) y solo aceptan texto libre."
         >
           <CamposPersonalizados campos={camposPersonalizados} />
+        </Seccion>
+
+        <Seccion
+          titulo="Punto de venta"
+          descripcion="Conectá tu sistema de caja para que descuente el stock apenas vende, sin esperar al próximo conteo. El catálogo lo sigue mandando Farmacia."
+        >
+          <IntegracionPdv estado={estadoIntegracion} />
         </Seccion>
       </div>
     </div>
