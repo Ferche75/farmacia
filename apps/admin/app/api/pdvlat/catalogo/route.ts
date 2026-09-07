@@ -44,6 +44,12 @@ interface FilaLote {
 // Catálogo de la empresa para pdvlat: Farmacia es la fuente de verdad del
 // nombre, el código de barras, el principio activo y el lote/vencimiento.
 //
+// El `stock` de cada item sale de stock_actual_lote (20260908000000): es
+// el stock REAL de ahora — la última foto física más todo lo que se movió
+// después, incluidas las ventas que el propio pdvlat ya sincronizó por
+// /api/pdvlat/ventas. Se resuelve con UNA llamada por página, no una por
+// producto: con `limite=1000` eso sería un N+1 de mil round-trips.
+//
 // El empresa_id NO se recibe por querystring: sale del api_key. Aceptarlo
 // como parámetro sería regalar un enumerador de catálogos ajenos (con
 // costo y precio adentro) a cualquiera que tenga una credencial válida.
@@ -52,7 +58,7 @@ interface FilaLote {
 // pensado para escalar a 100.000 SKU (CONTEXTO.md) y un OFFSET grande
 // obliga a Postgres a recorrer y descartar todo lo anterior en cada
 // página. El cursor es opaco para pdvlat: se pide la primera página sin
-// `cursor` y se sigue con el `siguiente_cursor` que devuelve la anterior,
+// `cursor` y se sigue con el `next_cursor` que devuelve la anterior,
 // hasta que venga null.
 //
 // GET /api/pdvlat/catalogo?limite=500&cursor=<uuid>&sucursal_id=<uuid>
@@ -127,7 +133,32 @@ export async function GET(request: Request) {
     }
   }
 
-  const productos = filas.map((fila) => {
+  // Stock real de toda la página en una sola llamada. Con sucursal_id se
+  // acota a esa sucursal; sin él, stock_actual_lote agrega todos los
+  // ámbitos (sucursal/bodega) de la empresa — misma convención null-safe
+  // que stock_actual.
+  const stockPorProducto = new Map<string, number>();
+
+  if (ids.length > 0) {
+    const { data: stocks, error: errorStock } = await supabase.rpc(
+      "stock_actual_lote",
+      {
+        p_empresa_id: empresaId,
+        p_producto_ids: ids,
+        p_sucursal_id: sucursalId,
+      }
+    );
+
+    if (errorStock) {
+      return NextResponse.json({ error: errorStock.message }, { status: 500 });
+    }
+
+    for (const fila of stocks ?? []) {
+      stockPorProducto.set(fila.producto_id, fila.stock);
+    }
+  }
+
+  const items = filas.map((fila) => {
     const codigos = fila.productos.codigos_barra ?? [];
     const principal = codigos.find((c) => c.es_principal) ?? codigos[0] ?? null;
     const lotes = lotesPorProducto.get(fila.producto_id) ?? [];
@@ -145,21 +176,22 @@ export async function GET(request: Request) {
       controlado: fila.productos.controlado,
       categoria: fila.productos.categoria,
       fabricante: fila.productos.fabricante,
-      codigo_barra: principal
-        ? {
-            codigo_norm: principal.codigo_norm,
-            codigo_raw: principal.codigo_raw,
-            unidades_por_codigo: principal.unidades_por_codigo,
-          }
-        : null,
+      // El principal, plano: es el que el POS imprime y busca por defecto.
+      codigo_barra: principal ? principal.codigo_norm : null,
       // Todos los códigos, no solo el principal: un mismo producto puede
       // tener el EAN de la caja y el del blister, y el POS tiene que
       // poder matchear cualquiera de los dos.
       codigos_barra: codigos.map((c) => c.codigo_norm),
       // Bs (moneda de referencia del proyecto).
       costo: fila.costo,
-      precio: fila.precio,
+      precio_venta: fila.precio,
       stock_minimo: fila.stock_minimo,
+      // Existencia autoritativa de ahora (ver el comentario de arriba). 0
+      // para un producto sin conteos ni movimientos.
+      stock: stockPorProducto.get(fila.producto_id) ?? 0,
+      // Desglose por lote/vencimiento SOLO informativo: `cantidad` es lo
+      // que dijo el último conteo físico de ese lote, no el stock de hoy
+      // (sirve para vigilar vencimientos, no para saber cuánto hay).
       // Vencimiento más próximo primero (el order by de arriba).
       lotes: lotes.map((l) => ({
         lote: l.lote,
@@ -172,10 +204,10 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     empresa_id: empresaId,
-    productos,
+    items,
     // null = no hay más páginas. Se manda el último producto_id de ESTA
     // página aunque haya venido incompleta.
-    siguiente_cursor:
+    next_cursor:
       filas.length === limite ? filas[filas.length - 1].producto_id : null,
   });
 }

@@ -799,6 +799,18 @@ export interface Database {
         Args: { p_empresa_id: string; p_producto_id: string; p_sucursal_id?: string | null };
         Returns: number;
       };
+      /** Misma semántica que stock_actual pero para muchos productos en una
+       * sola consulta (supabase/migrations/20260908000000). Devuelve una
+       * fila por producto pedido, con 0 para los que no tienen historia.
+       * La usa el catálogo de pdvlat, que pagina de a 1000 SKU. */
+      stock_actual_lote: {
+        Args: {
+          p_empresa_id: string;
+          p_producto_ids: string[];
+          p_sucursal_id?: string | null;
+        };
+        Returns: { producto_id: string; stock: number }[];
+      };
       /** Solo service_role (EXECUTE revocado a anon/authenticated) — se
        * llama desde apps/admin/app/api/pdvlat/ventas, nunca del browser. */
       registrar_venta: {
