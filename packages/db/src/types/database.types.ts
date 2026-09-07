@@ -606,6 +606,11 @@ export interface Database {
           codigo_expira_at: string | null;
           tenant_id_pdvlat: string | null;
           vinculado_at: string | null;
+          /** Sucursal a la que descuenta stock este POS. Nullable solo por
+           * las filas anteriores a 20260907000000; generar el código de
+           * invitación la exige. */
+          sucursal_id: string | null;
+          bodega_id: string | null;
           activo: boolean;
           created_at: string;
           updated_at: string;
@@ -619,6 +624,8 @@ export interface Database {
           codigo_expira_at?: string | null;
           tenant_id_pdvlat?: string | null;
           vinculado_at?: string | null;
+          sucursal_id?: string | null;
+          bodega_id?: string | null;
           activo?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -630,6 +637,20 @@ export interface Database {
             columns: ["empresa_id"];
             isOneToOne: true;
             referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "integraciones_pdv_sucursal_id_fkey";
+            columns: ["sucursal_id"];
+            isOneToOne: false;
+            referencedRelation: "sucursales";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "integraciones_pdv_bodega_id_fkey";
+            columns: ["bodega_id"];
+            isOneToOne: false;
+            referencedRelation: "bodegas";
             referencedColumns: ["id"];
           },
         ];
@@ -790,8 +811,15 @@ export interface Database {
         };
         Returns: Json;
       };
+      /** p_sucursal_id primero y sin default: en Postgres un parámetro
+       * obligatorio no puede ir después de uno con default (ver
+       * 20260907000000). */
       generar_codigo_invitacion_pdv: {
-        Args: { p_empresa_id?: string | null };
+        Args: {
+          p_sucursal_id: string;
+          p_bodega_id?: string | null;
+          p_empresa_id?: string | null;
+        };
         Returns: Json;
       };
       /** Solo service_role — devuelve credenciales, lo llama

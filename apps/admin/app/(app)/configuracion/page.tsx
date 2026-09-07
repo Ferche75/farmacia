@@ -105,7 +105,9 @@ export default async function ConfiguracionPage() {
   // el HTML que se manda al browser.
   const { data: integracion, error: errorIntegracion } = await supabase
     .from("integraciones_pdv")
-    .select("codigo_invitacion, codigo_expira_at, tenant_id_pdvlat, vinculado_at")
+    .select(
+      "codigo_invitacion, codigo_expira_at, tenant_id_pdvlat, vinculado_at, sucursal_id, bodega_id"
+    )
     .eq("empresa_id", perfil.empresaId)
     .maybeSingle();
 
@@ -118,6 +120,8 @@ export default async function ConfiguracionPage() {
     vinculadoAt: integracion?.vinculado_at ?? null,
     codigoInvitacion: integracion?.codigo_invitacion ?? null,
     codigoExpiraAt: integracion?.codigo_expira_at ?? null,
+    sucursalId: integracion?.sucursal_id ?? null,
+    bodegaId: integracion?.bodega_id ?? null,
   };
 
   return (
@@ -159,7 +163,14 @@ export default async function ConfiguracionPage() {
           titulo="Punto de venta"
           descripcion="Conectá tu sistema de caja para que descuente el stock apenas vende, sin esperar al próximo conteo. El catálogo lo sigue mandando Farmacia."
         >
-          <IntegracionPdv estado={estadoIntegracion} />
+          {/* Se reusan las mismas listas que la sección "Sucursales y
+              bodegas" — ya vienen cargadas y el selector solo ofrece las
+              activas (el RPC rechaza las inactivas de todas formas). */}
+          <IntegracionPdv
+            estado={estadoIntegracion}
+            sucursales={(sucursales ?? []).filter((s) => s.activo)}
+            bodegas={(bodegas ?? []).filter((b) => b.activo)}
+          />
         </Seccion>
       </div>
     </div>

@@ -13,6 +13,20 @@ export interface EstadoIntegracionPdv {
   vinculadoAt: string | null;
   codigoInvitacion: string | null;
   codigoExpiraAt: string | null;
+  /** null solo en integraciones anteriores a 20260907000000. */
+  sucursalId: string | null;
+  bodegaId: string | null;
+}
+
+interface SucursalOpcion {
+  id: string;
+  nombre: string;
+}
+
+interface BodegaOpcion {
+  id: string;
+  sucursal_id: string;
+  nombre: string;
 }
 
 function formatearFecha(iso: string | null): string {
@@ -28,27 +42,62 @@ function formatearCodigo(codigo: string): string {
   return codigo.replace(/(.{4})(?=.)/g, "$1-");
 }
 
-export function IntegracionPdv({ estado: estadoInicial }: { estado: EstadoIntegracionPdv }) {
+export function IntegracionPdv({
+  estado: estadoInicial,
+  sucursales,
+  bodegas,
+}: {
+  estado: EstadoIntegracionPdv;
+  sucursales: SucursalOpcion[];
+  bodegas: BodegaOpcion[];
+}) {
   const [estado, setEstado] = useState(estadoInicial);
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // El destino se elige ACÁ, al generar el código, y viaja hasta el POS en
+  // el canje: es el único momento en que la persona que sabe a qué
+  // sucursal corresponde la caja está mirando la pantalla. Precargado con
+  // lo que ya tenía la integración (cambiar de sucursal es re-generar el
+  // código), o con la única sucursal si hay una sola.
+  const [sucursalId, setSucursalId] = useState(
+    estadoInicial.sucursalId ?? (sucursales.length === 1 ? sucursales[0].id : "")
+  );
+  const [bodegaId, setBodegaId] = useState(estadoInicial.bodegaId ?? "");
+
+  const bodegasDeSucursal = bodegas.filter((b) => b.sucursal_id === sucursalId);
+  const nombreSucursal = (id: string | null) =>
+    sucursales.find((s) => s.id === id)?.nombre ?? null;
+  const nombreBodega = (id: string | null) => bodegas.find((b) => b.id === id)?.nombre ?? null;
+
   const vencido =
     estado.codigoExpiraAt !== null && new Date(estado.codigoExpiraAt) <= new Date();
   const codigoVigente = estado.codigoInvitacion && !vencido ? estado.codigoInvitacion : null;
+
+  function cambiarSucursal(id: string) {
+    setSucursalId(id);
+    // La bodega elegida deja de tener sentido si es de otra sucursal (el
+    // RPC lo rechaza), así que se limpia en vez de dejarla inconsistente.
+    setBodegaId("");
+  }
 
   async function generar() {
     setGenerando(true);
     setError(null);
     try {
       const supabase = createBrowserClient();
-      const resultado: CodigoInvitacionPdv = await generarCodigoInvitacionPdv(supabase);
+      const resultado: CodigoInvitacionPdv = await generarCodigoInvitacionPdv(supabase, {
+        sucursalId,
+        bodegaId: bodegaId || null,
+      });
       setEstado({
         vinculado: resultado.vinculado,
         tenantIdPdvlat: resultado.tenant_id_pdvlat,
         vinculadoAt: estado.vinculadoAt,
         codigoInvitacion: resultado.codigo_invitacion,
         codigoExpiraAt: resultado.codigo_expira_at,
+        sucursalId: resultado.sucursal_id,
+        bodegaId: resultado.bodega_id,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo generar el código.");
@@ -77,6 +126,18 @@ export function IntegracionPdv({ estado: estadoInicial }: { estado: EstadoIntegr
         )}
       </p>
 
+      {estado.vinculado && nombreSucursal(estado.sucursalId) ? (
+        <p className="mt-1.5 text-sm text-muted">
+          Descuenta stock de <span className="font-medium text-ink">{nombreSucursal(estado.sucursalId)}</span>
+          {nombreBodega(estado.bodegaId) ? (
+            <>
+              , bodega <span className="font-medium text-ink">{nombreBodega(estado.bodegaId)}</span>
+            </>
+          ) : null}
+          .
+        </p>
+      ) : null}
+
       {codigoVigente ? (
         <div className="mt-5 rounded-md border border-line bg-paper px-4 py-3">
           <p className="text-xs font-medium text-muted">Código de vinculación</p>
@@ -90,10 +151,58 @@ export function IntegracionPdv({ estado: estadoInicial }: { estado: EstadoIntegr
         </div>
       ) : null}
 
+      {sucursales.length === 0 ? (
+        <p className="mt-5 text-sm text-muted">
+          Creá una sucursal activa antes de conectar el punto de venta: sin ella no hay a dónde
+          descontar el stock.
+        </p>
+      ) : (
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-ink">Sucursal *</label>
+            <select
+              value={sucursalId}
+              onChange={(e) => cambiarSucursal(e.target.value)}
+              className="input"
+            >
+              <option value="">Elegí una sucursal…</option>
+              {sucursales.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.nombre}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-muted">
+              Cada venta de esa caja descuenta stock de esta sucursal.
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-ink">Bodega</label>
+            <select
+              value={bodegaId}
+              onChange={(e) => setBodegaId(e.target.value)}
+              disabled={!sucursalId || bodegasDeSucursal.length === 0}
+              className="input disabled:opacity-50"
+            >
+              <option value="">Toda la sucursal</option>
+              {bodegasDeSucursal.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.nombre}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-muted">
+              Opcional. Dejalo en “toda la sucursal” si no separás stock por bodega.
+            </p>
+          </div>
+        </div>
+      )}
+
       <button
         type="button"
         onClick={generar}
-        disabled={generando}
+        disabled={generando || !sucursalId}
         className="mt-5 rounded-md bg-brand px-3.5 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
       >
         {generando
@@ -108,7 +217,8 @@ export function IntegracionPdv({ estado: estadoInicial }: { estado: EstadoIntegr
       ) : (
         <p className="mt-2.5 text-xs text-muted">
           Generar un código nuevo anula el anterior, pero no corta la integración que ya esté
-          andando: eso recién pasa cuando alguien canjea el código nuevo.
+          andando: eso recién pasa cuando alguien canjea el código nuevo. Cambiar de sucursal acá
+          también necesita que el punto de venta canjee el código nuevo para enterarse.
         </p>
       )}
     </div>

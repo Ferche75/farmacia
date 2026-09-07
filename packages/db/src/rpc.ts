@@ -586,20 +586,34 @@ export interface CodigoInvitacionPdv {
   codigo_expira_at: string | null;
   vinculado: boolean;
   tenant_id_pdvlat: string | null;
+  /** Sucursal a la que va a descontar stock este POS: se elige al generar
+   * el código y viaja hasta pdvlat en el canje (20260907000000). */
+  sucursal_id: string;
+  bodega_id: string | null;
 }
 
 /** Genera (o renueva) el código de invitación de un solo uso que el
  * operador de pdvlat canjea contra POST /api/pdvlat/vincular para recibir
  * sus credenciales. Solo admin/gerente/superadmin.
  *
+ * `sucursalId` es obligatorio: es lo que define a dónde descuenta stock el
+ * POS, y el RPC valida que sea de la empresa y esté activa. `bodegaId`
+ * opcional (null = toda la sucursal), como en el resto del sistema.
+ *
  * `empresaId` se deja sin pasar en el uso normal: el RPC opera sobre
  * mi_empresa_id(). Solo el superadmin puede mandar otra empresa. */
 export async function generarCodigoInvitacionPdv(
   supabase: SupabaseClient<Database>,
-  empresaId?: string
+  params: {
+    sucursalId: string;
+    bodegaId?: string | null;
+    empresaId?: string;
+  }
 ): Promise<CodigoInvitacionPdv> {
   const { data, error } = await supabase.rpc("generar_codigo_invitacion_pdv", {
-    p_empresa_id: empresaId ?? null,
+    p_sucursal_id: params.sucursalId,
+    p_bodega_id: params.bodegaId ?? null,
+    p_empresa_id: params.empresaId ?? null,
   });
 
   if (error) throw error;
