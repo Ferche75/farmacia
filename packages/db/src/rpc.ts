@@ -343,10 +343,32 @@ export interface ResultadoPrevisualizacion {
   filas: FilaClasificada[];
 }
 
+/** Una fila que el lote rechazó. `motivo` es uno de los 6 códigos que
+ * arma confirmar_importacion_lote (codigo_invalido,
+ * producto_no_encontrado_por_nombre, nombre_ambiguo,
+ * nombre_duplicado_en_archivo, codigo_duplicado_en_archivo,
+ * ya_pertenece_a_otro_laboratorio) — se tipa como string y no como unión
+ * cerrada a propósito: la traducción a castellano vive en la UI y tiene
+ * que degradar sin romperse si la migración agrega un motivo nuevo.
+ *
+ * Viene `codigo_barra` O `nombre` según cómo se hubiera emparejado la
+ * fila, nunca los dos. */
+export interface FilaRechazadaImportacion {
+  motivo: string;
+  codigo_barra?: string | null;
+  nombre?: string | null;
+  producto_id?: string | null;
+}
+
 export interface ResultadoConfirmarLote {
   creados: number;
   actualizados: number;
   rechazados: number;
+  /** El detalle de las `rechazados` de ESTE lote — quien llama concatena
+   * los de todos los lotes, igual que suma los contadores. Existía en la
+   * base (importaciones.log) desde siempre pero no se devolvía; ver
+   * supabase/migrations/20260909000000_importacion_log_en_respuesta.sql. */
+  log: FilaRechazadaImportacion[];
 }
 
 export interface ResultadoFinalizarImportacion {

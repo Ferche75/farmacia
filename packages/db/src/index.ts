@@ -45,6 +45,7 @@ export type {
   FilaImportacion,
   FilaClasificada,
   ResultadoPrevisualizacion,
+  FilaRechazadaImportacion,
   ResultadoConfirmarLote,
   ResultadoFinalizarImportacion,
   ResultadoEscaneoDesconocido,

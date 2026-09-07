@@ -10,6 +10,7 @@ import {
   TAMANO_LOTE_IMPORTACION,
   type Json,
   type ResultadoPrevisualizacion,
+  type FilaRechazadaImportacion,
 } from "@farmacia/db";
 import {
   CAMPOS_SISTEMA,
@@ -48,6 +49,39 @@ interface Progreso {
   creados: number;
   actualizados: number;
   rechazados: number;
+  /** Acumulado de todos los lotes — cada confirmarImportacionLote devuelve
+   * solo el suyo. Debería tener exactamente `rechazados` elementos. */
+  log: FilaRechazadaImportacion[];
+}
+
+// Los códigos de `motivo` que devuelve confirmar_importacion_lote,
+// traducidos a lo que tiene que HACER quien importó para arreglar la
+// planilla. El texto asume cero contexto técnico: nada de "no encontrado
+// por nombre", sí "revisá que el nombre esté escrito igual".
+const MOTIVOS_RECHAZO: Record<string, string> = {
+  codigo_invalido: "La fila no tiene código de barras ni nombre, así que no hay forma de saber de qué producto se trata.",
+  producto_no_encontrado_por_nombre:
+    "Sin código de barras solo se pueden actualizar productos que ya existen, y ninguno se llama así. Revisá que el nombre esté escrito exactamente igual que en el sistema, o agregale el código de barras a la fila.",
+  nombre_ambiguo:
+    "Hay más de un producto con ese mismo nombre en el sistema, así que no se sabe a cuál de todos actualizar. Agregale el código de barras a la fila.",
+  nombre_duplicado_en_archivo:
+    "Ese producto ya venía en otra fila del archivo. Se usó la primera y esta se descartó: dejá una sola fila por producto.",
+  codigo_duplicado_en_archivo:
+    "Ese código de barras ya venía en otra fila del archivo. Se usó la primera y esta se descartó: dejá una sola fila por código.",
+  ya_pertenece_a_otro_laboratorio:
+    "Ese código de barras ya está cargado en el sistema bajo otro laboratorio. Para no pisar el producto de otro proveedor, revisá que el laboratorio de esta importación sea el correcto.",
+};
+
+function textoMotivo(motivo: string): string {
+  return MOTIVOS_RECHAZO[motivo] ?? `No se pudo importar (${motivo}).`;
+}
+
+/** Lo que identifica la fila para quien mira su propia planilla: el
+ * código de barras, o el nombre cuando la fila no traía código. */
+function identificadorFila(fila: FilaRechazadaImportacion): string {
+  if (fila.codigo_barra) return fila.codigo_barra;
+  if (fila.nombre) return `"${fila.nombre}"`;
+  return "(fila sin código ni nombre)";
 }
 
 // Las 3 columnas del wizard están siempre en pantalla, una al lado de la
@@ -221,13 +255,21 @@ export function Importador({
       );
       const lotes = trocear(filas, TAMANO_LOTE_IMPORTACION);
 
-      let acc = { creados: 0, actualizados: 0, rechazados: 0 };
+      let acc: Omit<Progreso, "lote" | "totalLotes"> = {
+        creados: 0,
+        actualizados: 0,
+        rechazados: 0,
+        log: [],
+      };
       for (let i = 0; i < lotes.length; i++) {
         const r = await confirmarImportacionLote(supabase, importacionId, laboratorio.trim() || null, lotes[i]);
         acc = {
           creados: acc.creados + r.creados,
           actualizados: acc.actualizados + r.actualizados,
           rechazados: acc.rechazados + r.rechazados,
+          // El RPC devuelve el log de SU lote nomás; el detalle del archivo
+          // entero se arma acá (y queda igual en importaciones.log).
+          log: [...acc.log, ...(r.log ?? [])],
         };
         setProgreso({ lote: i + 1, totalLotes: lotes.length, ...acc });
       }
@@ -573,11 +615,39 @@ export function Importador({
 
       {paso === "listo" && progreso && (
         <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-ink/40 p-6">
-          <div className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-xl">
+          <div className={`w-full rounded-lg bg-surface p-6 shadow-xl ${progreso.rechazados > 0 ? "max-w-xl" : "max-w-sm"}`}>
             <p className="mb-3 text-lg font-semibold text-ink">Importación completa</p>
             <p className="font-mono text-sm text-muted">
               {progreso.creados} creados, {progreso.actualizados} actualizados, {progreso.rechazados} rechazados.
             </p>
+
+            {progreso.rechazados > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-sm font-medium text-ink">
+                  Filas que no se importaron ({progreso.log.length})
+                </p>
+                {progreso.log.length === 0 ? (
+                  // Defensivo: importaciones viejas (antes de que el RPC
+                  // devolviera `log`) cuentan rechazos sin detalle.
+                  <p className="text-xs text-muted">
+                    No se recibió el detalle de esta importación.
+                  </p>
+                ) : (
+                  <ul className="max-h-72 divide-y divide-line overflow-y-auto rounded-md border border-line">
+                    {progreso.log.map((f, i) => (
+                      <li key={`${f.motivo}-${identificadorFila(f)}-${i}`} className="px-3 py-2">
+                        <p className="font-mono text-sm text-ink">{identificadorFila(f)}</p>
+                        <p className="mt-0.5 text-xs text-muted">{textoMotivo(f.motivo)}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="mt-2 text-xs text-muted">
+                  El resto del archivo sí se importó. Corregí estas filas y volvé a importar solo ellas.
+                </p>
+              </div>
+            )}
+
             <button
               onClick={empezarDeNuevo}
               className="mt-4 rounded-md bg-brand px-3 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90"
