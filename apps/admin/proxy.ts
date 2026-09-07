@@ -7,10 +7,25 @@ import { updateSession } from "@farmacia/db/server";
 // pegarle a la base en cada request, incluidas las prefetcheadas).
 const PUBLIC_ROUTES = ["/login"];
 
+// pdvlat llama a estas tres server-to-server, sin cookie de sesión: se
+// autentican solas (vincular con el código de invitación, ventas/catalogo
+// con X-PDV-Api-Key/Secret — ver lib/pdvlat.ts), nunca con auth.uid(). Mismo
+// bug real ya encontrado y arreglado en apps/conteo/proxy.ts para el
+// callback de n8n: sin esta excepción, el chequeo de sesión de acá abajo
+// las redirigía a /login con un 307 antes de que el handler llegara a
+// correr — confirmado con curl contra producción (pdvlat recibía HTML de
+// login donde esperaba JSON).
+const RUTAS_SIN_SESION = ["/api/pdvlat/vincular", "/api/pdvlat/ventas", "/api/pdvlat/catalogo"];
+
 export async function proxy(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+
+  if (RUTAS_SIN_SESION.includes(path)) {
+    return NextResponse.next();
+  }
+
   const { response, user } = await updateSession(request);
 
-  const path = request.nextUrl.pathname;
   const isPublicRoute = PUBLIC_ROUTES.includes(path);
 
   if (!user && !isPublicRoute) {
