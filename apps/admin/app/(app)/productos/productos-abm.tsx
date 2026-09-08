@@ -265,22 +265,27 @@ export function ProductosAbm({
     window.localStorage.setItem(LOCALSTORAGE_KEY_COLUMNAS, JSON.stringify(prefColumnas));
   }, [prefColumnas]);
 
+  // Parten de `columnasCombinadas` (no de `prefColumnas` crudo) a
+  // propósito: si el usuario togglea/reordena una columna que recién se
+  // agregó por la reconciliación de arriba, lo que se guarda incluye esa
+  // columna también, en vez de partir de un `prefColumnas` que todavía no
+  // la tiene.
   function toggleColumna(id: string) {
-    setPrefColumnas((prev) => ({
-      ...prev,
-      visibles: prev.visibles.includes(id) ? prev.visibles.filter((c) => c !== id) : [...prev.visibles, id],
-    }));
+    setPrefColumnas({
+      ...columnasCombinadas,
+      visibles: columnasCombinadas.visibles.includes(id)
+        ? columnasCombinadas.visibles.filter((c) => c !== id)
+        : [...columnasCombinadas.visibles, id],
+    });
   }
 
   function moverColumna(id: string, direccion: -1 | 1) {
-    setPrefColumnas((prev) => {
-      const i = prev.orden.indexOf(id);
-      const j = i + direccion;
-      if (i < 0 || j < 0 || j >= prev.orden.length) return prev;
-      const nuevoOrden = [...prev.orden];
-      [nuevoOrden[i], nuevoOrden[j]] = [nuevoOrden[j], nuevoOrden[i]];
-      return { ...prev, orden: nuevoOrden };
-    });
+    const i = columnasCombinadas.orden.indexOf(id);
+    const j = i + direccion;
+    if (i < 0 || j < 0 || j >= columnasCombinadas.orden.length) return;
+    const nuevoOrden = [...columnasCombinadas.orden];
+    [nuevoOrden[i], nuevoOrden[j]] = [nuevoOrden[j], nuevoOrden[i]];
+    setPrefColumnas({ ...columnasCombinadas, orden: nuevoOrden });
   }
 
   // Campos personalizados (ver /configuracion) se suman como columnas
@@ -290,25 +295,44 @@ export function ProductosAbm({
     [camposPersonalizados]
   );
 
-  // Si aparece una columna nueva (empresa acaba de definir un campo)
-  // que el usuario todavía no tiene en su preferencia guardada, se
-  // agrega visible al final — mejor que quede oculta silenciosamente la
-  // primera vez. Es un ajuste derivado de `todasLasColumnas`, no una
-  // sincronización con algo externo, así que se resuelve durante el
-  // render (comparando contra el último valor visto) en vez de en un
-  // efecto — mismo patrón que ya usa el resto del proyecto para esto.
-  const idsColumnasConocidas = todasLasColumnas.map((c) => c.id).join(",");
-  const [idsColumnasVistos, setIdsColumnasVistos] = useState(idsColumnasConocidas);
-  if (idsColumnasVistos !== idsColumnasConocidas) {
-    setIdsColumnasVistos(idsColumnasConocidas);
-    const nuevas = todasLasColumnas.map((c) => c.id).filter((id) => !prefColumnas.orden.includes(id));
-    if (nuevas.length > 0) {
-      setPrefColumnas((prev) => ({ orden: [...prev.orden, ...nuevas], visibles: [...prev.visibles, ...nuevas] }));
-    }
-  }
+  // Vista combinada: `prefColumnas` (lo guardado en localStorage) más
+  // cualquier columna que todavía no esté ahí — una fija recién agregada
+  // al código, o un campo personalizado que la empresa acaba de definir —
+  // agregada visible al final. Todo lo que LEE columnas (la tabla, el
+  // panel de abajo) usa esto, nunca `prefColumnas` crudo: así una columna
+  // nueva se ve YA, en el primer render, sin depender de que algo la
+  // "reconcilie" antes.
+  //
+  // Cálculo en render, no en efecto: es una proyección pura de
+  // `prefColumnas` + `todasLasColumnas`, no hay nada externo con lo que
+  // sincronizar. La versión anterior de esto usaba un useEffect que
+  // llamaba a setPrefColumnas — además de ser el patrón que
+  // react-hooks/set-state-in-effect existe para evitar, tenía un bug real
+  // (2026-09-14): comparaba contra un "último valor visto" que se
+  // inicializaba con el valor ACTUAL de `todasLasColumnas`, así que
+  // cualquier columna fija ya presente desde el montaje (como "stock",
+  // recién agregada) nunca disparaba nada — la comparación era contra sí
+  // misma desde el primer instante. Un usuario con preferencia vieja en
+  // localStorage se quedaba sin forma de ver la columna nueva, ni
+  // scrolleando: no estaba en la lista que itera el panel, aunque sí
+  // contara en el "X/13" del botón.
+  //
+  // `toggleColumna`/`moverColumna` parten de este mismo valor combinado
+  // (no de `prefColumnas` crudo) y lo escriben tal cual a
+  // `prefColumnas`: la primera vez que el usuario toca cualquier columna,
+  // lo guardado en localStorage se pone al día solo, de yapa.
+  // Sin useMemo a propósito: son un par de .map/.filter sobre ~13
+  // columnas, no vale la pena memoizarlo a mano (y el React Compiler de
+  // este proyecto se queja si la memoización manual no matchea la que
+  // generaría solo — más simple no competir con él acá).
+  const nuevasColumnas = todasLasColumnas.map((c) => c.id).filter((id) => !prefColumnas.orden.includes(id));
+  const columnasCombinadas =
+    nuevasColumnas.length === 0
+      ? prefColumnas
+      : { orden: [...prefColumnas.orden, ...nuevasColumnas], visibles: [...prefColumnas.visibles, ...nuevasColumnas] };
 
-  const columnasActivas = prefColumnas.orden
-    .filter((id) => prefColumnas.visibles.includes(id))
+  const columnasActivas = columnasCombinadas.orden
+    .filter((id) => columnasCombinadas.visibles.includes(id))
     .map((id) => todasLasColumnas.find((c) => c.id === id))
     .filter((c): c is (typeof todasLasColumnas)[number] => c !== undefined);
 
@@ -339,22 +363,43 @@ export function ProductosAbm({
   // abajo en este mismo archivo). Un producto nuevo todavía no tiene id ni
   // stock del cual hablar, así que el efecto no hace nada.
   const productoEditandoId = form?.id;
-  useEffect(() => {
+
+  // Reset del formulario de ajuste al cambiar de producto — durante el
+  // render, no en un efecto (react-hooks/set-state-in-effect: el patrón
+  // que React mismo documenta para "resetear estado cuando cambia algo",
+  // comparando contra el último valor visto y actualizando ahí mismo si
+  // difiere). Acá es seguro hacerlo así porque `prevProductoId` es estado
+  // PROPIO que queda congelado hasta que se lo pisa a mano — diverge de
+  // verdad de `productoEditandoId` en cuanto el usuario abre otro
+  // producto, a diferencia de columnasCombinadas de más arriba, donde las
+  // dos puntas se recalculaban juntas y nunca podían diferir solas.
+  // También limpia `stockPorSucursal` (no solo el formulario de ajuste):
+  // sin esto, cambiar de producto de A a B podría mostrar por un instante
+  // el stock viejo de A mientras llegan las respuestas de B. Con el mapa
+  // arrancando vacío, cada fila cae en el `!st` de abajo ("cargando…")
+  // hasta que su propia respuesta llega — no hace falta precargar un
+  // estado "cargando: true" a mano (eso era el otro setState síncrono al
+  // tope del efecto que señalaba el linter).
+  const [prevProductoId, setPrevProductoId] = useState(productoEditandoId);
+  if (productoEditandoId !== prevProductoId) {
+    setPrevProductoId(productoEditandoId);
     setAjusteAbierto(null);
     setAjusteCantidad("");
     setAjusteMotivo("");
     setAjusteError(null);
     setAjusteOk(null);
+    setStockPorSucursal(new Map());
+  }
 
-    if (!productoEditandoId || sucursales.length === 0) {
-      setStockPorSucursal(new Map());
-      return;
-    }
+  // El efecto queda con un solo trabajo: pedir el stock real. Ningún
+  // setState síncrono en el cuerpo — solo dentro de los .then() de abajo,
+  // que es justo el caso que react-hooks/set-state-in-effect permite
+  // ("llamar a setState en una función de callback cuando cambia un
+  // estado externo").
+  useEffect(() => {
+    if (!productoEditandoId || sucursales.length === 0) return;
 
     let cancelado = false;
-    setStockPorSucursal(
-      new Map(sucursales.map((s) => [s.id, { cargando: true, valor: null, error: null }]))
-    );
 
     for (const s of sucursales) {
       void supabase
@@ -867,10 +912,10 @@ export function ProductosAbm({
                     Mostrar/ocultar y ordenar — se guarda en este navegador.
                   </p>
                   <ul className="max-h-80 space-y-0.5 overflow-y-auto">
-                    {prefColumnas.orden.map((id, i) => {
+                    {columnasCombinadas.orden.map((id, i) => {
                       const col = todasLasColumnas.find((c) => c.id === id);
                       if (!col) return null;
-                      const visible = prefColumnas.visibles.includes(id);
+                      const visible = columnasCombinadas.visibles.includes(id);
                       return (
                         <li key={id} className="flex items-center gap-2 rounded px-1 py-1 hover:bg-paper">
                           <input
@@ -892,7 +937,7 @@ export function ProductosAbm({
                           <button
                             type="button"
                             onClick={() => moverColumna(id, 1)}
-                            disabled={i === prefColumnas.orden.length - 1}
+                            disabled={i === columnasCombinadas.orden.length - 1}
                             className="px-1 text-muted hover:text-ink disabled:opacity-30"
                             aria-label={`Mover ${col.label} abajo`}
                           >
