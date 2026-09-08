@@ -10,6 +10,10 @@ interface ConteoFila {
   cerradoAt: string | null;
   sucursalNombre: string;
   bodegaNombre: string | null;
+  /** Cuántos celulares reportaron tener escaneos/desconocidos sin subir
+   * en este conteo. 0 (lo normal) no muestra nada — ver
+   * supabase/migrations/20260912000000_estado_dispositivos_conteo.sql */
+  dispositivosTrabados: number;
 }
 
 export function ListaConteos({ conteos }: { conteos: ConteoFila[] }) {
@@ -33,7 +37,19 @@ export function ListaConteos({ conteos }: { conteos: ConteoFila[] }) {
         <tbody>
           {conteos.map((c) => (
             <tr key={c.id} className="border-b border-line last:border-0 hover:bg-paper">
-              <td className="px-4 py-2.5 text-ink">{c.nombre}</td>
+              <td className="px-4 py-2.5 text-ink">
+                {c.nombre}
+                {/* Solo cuando hay algo que mirar: una fila sana no se
+                    ensucia con un badge "todo bien". */}
+                {c.dispositivosTrabados > 0 && (
+                  <span className="ml-2 inline-flex items-center rounded-full bg-warn-soft px-2 py-0.5 text-xs font-medium text-warn">
+                    ⚠{" "}
+                    {c.dispositivosTrabados === 1
+                      ? "1 dispositivo con pendientes"
+                      : `${c.dispositivosTrabados} dispositivos con pendientes`}
+                  </span>
+                )}
+              </td>
               <td className="px-4 py-2.5 text-muted">{c.sucursalNombre}</td>
               <td className="px-4 py-2.5 text-muted">{c.bodegaNombre ?? "—"}</td>
               <td className="px-4 py-2.5">

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { createBrowserClient, cerrarConteo, type Rol } from "@farmacia/db";
 import { ResumenGerencial } from "./resumen-gerencial";
+import { EstadoDispositivos } from "./estado-dispositivos";
 
 export function DetalleConteo({
   conteoId,
@@ -26,7 +27,13 @@ export function DetalleConteo({
   const [error, setError] = useState<string | null>(null);
 
   const puedeGestionar = rol === "admin" || rol === "gerente" || rol === "superadmin";
-  const puedeVerResumen = rol === "gerente" || rol === "superadmin";
+  // Bug real en producción (2026-09-08): esto excluía a 'admin', que
+  // CONTEXTO.md dice explícitamente que tiene que poder ver el resumen
+  // gerencial. Sin esto, un admin entraba al detalle de un conteo y no
+  // veía nada abajo del encabezado — ni el resumen ni ningún error, la
+  // sección entera no se pedía. Ver 20260911000000_resumen_conteo_admin.sql
+  // para el mismo fix del lado del RPC (que además lo hubiera rechazado).
+  const puedeVerResumen = rol === "admin" || rol === "gerente" || rol === "superadmin";
 
   async function abrirConfirmacion() {
     setError(null);
@@ -103,9 +110,10 @@ export function DetalleConteo({
                 : `Quedan ${pendientesDesconocidos} código(s) sin identificar en este conteo — se pueden resolver después desde la bandeja de revisión.`}
             </li>
             <li>
-              Antes de confirmar, fijate que el celular que está contando muestre
-              &quot;sincronizado&quot; (0 pendientes) — el servidor no puede saber si
-              quedó algo sin subir en el dispositivo.
+              Antes de confirmar, mirá &quot;Dispositivos&quot; más abajo: ahí está lo que
+              cada celular reportó que le quedó sin subir. Ojo con la columna
+              &quot;Visto&quot; — si es vieja, ese dato también lo es (el celular está sin
+              red) y puede haber más pendientes de los que figuran.
             </li>
           </ul>
           <div className="flex gap-3">
@@ -122,6 +130,11 @@ export function DetalleConteo({
           </div>
         </div>
       )}
+
+      {/* Mismo booleano que el resumen a propósito: el bug que se acaba de
+          arreglar arriba fue exactamente tener dos chequeos de rol
+          separados para lo mismo, que se fueron desincronizando. */}
+      {puedeVerResumen && <EstadoDispositivos conteoId={conteoId} />}
 
       {puedeVerResumen && <ResumenGerencial conteoId={conteoId} nombreConteo={nombre} />}
     </div>

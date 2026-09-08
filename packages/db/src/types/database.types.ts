@@ -351,6 +351,61 @@ export interface Database {
           },
         ];
       };
+      // Telemetría de soporte, no dato de negocio: qué tiene trabado en
+      // su cola local cada celular que está contando, y cuándo se lo
+      // escuchó por última vez. Ver
+      // supabase/migrations/20260912000000_estado_dispositivos_conteo.sql
+      conteo_dispositivos_estado: {
+        Row: {
+          id: string;
+          empresa_id: string;
+          conteo_id: string;
+          /** User agent truncado (dispositivoActual() en apps/conteo) —
+           * mismo criterio flojo que escaneos.dispositivo. */
+          dispositivo: string;
+          /** Quién reportó por última vez desde ese dispositivo. */
+          usuario_id: string | null;
+          pendientes: number;
+          fallados: number;
+          ultimo_error: string | null;
+          ultima_conexion: string;
+        };
+        Insert: {
+          id?: string;
+          empresa_id: string;
+          conteo_id: string;
+          dispositivo: string;
+          usuario_id?: string | null;
+          pendientes?: number;
+          fallados?: number;
+          ultimo_error?: string | null;
+          ultima_conexion?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["conteo_dispositivos_estado"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "conteo_dispositivos_estado_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "conteo_dispositivos_estado_conteo_id_fkey";
+            columns: ["conteo_id"];
+            isOneToOne: false;
+            referencedRelation: "conteos";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "conteo_dispositivos_estado_usuario_id_fkey";
+            columns: ["usuario_id"];
+            isOneToOne: false;
+            referencedRelation: "perfiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       conteo_lineas: {
         Row: {
           id: string;
@@ -770,6 +825,19 @@ export interface Database {
           p_client_uuid: string;
           p_foto_path?: string | null;
           p_dispositivo?: string | null;
+        };
+        Returns: Json;
+      };
+      /** Heartbeat del dispositivo que está contando (upsert por
+       * (conteo, dispositivo)). No recibe usuario_id: lo fija con
+       * auth.uid(). Ver 20260912000000_estado_dispositivos_conteo.sql */
+      reportar_estado_dispositivo: {
+        Args: {
+          p_conteo_id: string;
+          p_dispositivo: string;
+          p_pendientes: number;
+          p_fallados: number;
+          p_ultimo_error?: string | null;
         };
         Returns: Json;
       };

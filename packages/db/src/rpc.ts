@@ -641,3 +641,41 @@ export async function generarCodigoInvitacionPdv(
   if (error) throw error;
   return data as unknown as CodigoInvitacionPdv;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Estado de los dispositivos que están contando
+// ═══════════════════════════════════════════════════════════════
+// (supabase/migrations/20260912000000_estado_dispositivos_conteo.sql)
+
+/** Heartbeat de un dispositivo de apps/conteo: cuántos escaneos/
+ * desconocidos tiene trabados en su cola local. Canal aparte del sync de
+ * datos real, a propósito — son cuatro números y un string, así que pasa
+ * incluso en la conexión donde subir una foto no pasa, que es exactamente
+ * cuando el admin necesita enterarse.
+ *
+ * No manda usuario_id: el RPC usa auth.uid() server-side (nunca se
+ * confía en un usuario_id del cliente, mismo criterio que
+ * registrarEscaneoDesconocido).
+ *
+ * Es fire-and-forget: quien lo llama debería tragarse el error, nunca
+ * dejar que frene la sincronización de verdad. */
+export async function reportarEstadoDispositivo(
+  supabase: SupabaseClient<Database>,
+  params: {
+    conteoId: string;
+    dispositivo: string;
+    pendientes: number;
+    fallados: number;
+    ultimoError?: string | null;
+  }
+): Promise<void> {
+  const { error } = await supabase.rpc("reportar_estado_dispositivo", {
+    p_conteo_id: params.conteoId,
+    p_dispositivo: params.dispositivo,
+    p_pendientes: params.pendientes,
+    p_fallados: params.fallados,
+    p_ultimo_error: params.ultimoError ?? null,
+  });
+
+  if (error) throw error;
+}

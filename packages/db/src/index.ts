@@ -26,6 +26,7 @@ export {
   crearProductoYContar,
   subirFotoDesconocido,
   generarCodigoInvitacionPdv,
+  reportarEstadoDispositivo,
 } from "./rpc";
 export type {
   ProductoEncontrado,

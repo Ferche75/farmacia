@@ -2,9 +2,11 @@ import {
   createBrowserClient,
   registrarEscaneosBatch,
   registrarEscaneoDesconocido,
+  reportarEstadoDispositivo,
   subirFotoDesconocido,
 } from "@farmacia/db";
 import { db } from "./db";
+import { dispositivoActual } from "./motor-escaneo";
 
 const INTERVALO_MS = 10_000;
 const TAMANO_LOTE = 200;
@@ -179,6 +181,45 @@ export async function sincronizarDesconocidosPendientes(
   return { enviados };
 }
 
+/** Le avisa al servidor qué tiene trabado ESTE dispositivo (cuántos
+ * pendientes, cuántos fallados, el último error). Es un canal aparte del
+ * sync de datos: son cuatro números y un string corto, así que pasa
+ * incluso en la conexión donde subir una foto no pasa — que es
+ * justamente cuando el admin necesita enterarse.
+ *
+ * El contador "N sin sincronizar" que muestra pantalla-conteo.tsx nunca
+ * sale del celular: sin esto, un admin a distancia (el cliente está en
+ * Bolivia) no tiene forma de saber que un dispositivo quedó con la cola
+ * trabada salvo pedirle al operario que le lea la pantalla.
+ *
+ * Fire-and-forget de verdad: nunca tira ni frena el sync real. Si el
+ * dispositivo está sin red esto tampoco llega, y está bien — la
+ * `ultima_conexion` del último heartbeat que SÍ llegó ya es la señal
+ * ("visto por última vez hace 3 horas"). */
+async function reportarEstado(conteoId: string): Promise<void> {
+  try {
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+
+    const [pendientes, fallados] = await Promise.all([
+      contarPendientes(conteoId),
+      obtenerFallados(conteoId),
+    ]);
+
+    await reportarEstadoDispositivo(createBrowserClient(), {
+      conteoId,
+      dispositivo: dispositivoActual(),
+      pendientes,
+      fallados: fallados.length,
+      // Resumen, no log: alcanza el error del primer item fallado para
+      // que el admin sepa de qué clase de problema se trata.
+      ultimoError: fallados[0]?.ultimoError ?? null,
+    });
+  } catch {
+    // Telemetría: si no llega, no pasa nada. Lo único que no se puede
+    // permitir es que rompa la sincronización de datos reales.
+  }
+}
+
 /** Arranca el timer de 10s + el listener de reconexión, para escaneos
  * normales y desconocidos juntos. Devuelve una función para desmontar
  * todo (llamar desde el cleanup de un useEffect). */
@@ -196,6 +237,11 @@ export function iniciarSyncAutomatico(
       enviados: r1.enviados + r2.enviados,
       error: r1.error ?? r2.error,
     });
+    // Después de sincronizar, no antes: así el heartbeat refleja lo que
+    // quedó trabado de verdad en este ciclo, no lo que había hace 10s.
+    // Piggyback sobre el mismo timer a propósito — un segundo intervalo
+    // solo para esto sería gastar batería y red de más.
+    await reportarEstado(conteoId);
   };
 
   intervalId = setInterval(ejecutar, INTERVALO_MS);
