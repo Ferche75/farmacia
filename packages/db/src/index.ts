@@ -26,6 +26,7 @@ export {
   crearProductoYContar,
   subirFotoDesconocido,
   generarCodigoInvitacionPdv,
+  ajustarStock,
   reportarEstadoDispositivo,
 } from "./rpc";
 export type {
@@ -53,4 +54,5 @@ export type {
   NuevoProductoDesdeIA,
   NuevoProductoManual,
   CodigoInvitacionPdv,
+  ResultadoAjusteStock,
 } from "./rpc";

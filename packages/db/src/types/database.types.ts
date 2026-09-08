@@ -601,6 +601,11 @@ export interface Database {
           tipo: "ingreso" | "venta" | "ajuste";
           delta: number;
           referencia: string | null;
+          /** Por qué se hizo el movimiento, en palabras de quien lo hizo.
+           * Obligatorio en los movimientos manuales (ajustar_stock), null
+           * en las ventas de pdvlat — ver
+           * supabase/migrations/20260914000000_ajuste_manual_de_stock.sql */
+          motivo: string | null;
           /** null = lo generó una integración externa (pdvlat), que no
            * tiene un perfil de Farmacia detrás — ver
            * supabase/migrations/20260901000000_integracion_pdvlat_stock.sql */
@@ -616,6 +621,7 @@ export interface Database {
           tipo: "ingreso" | "venta" | "ajuste";
           delta: number;
           referencia?: string | null;
+          motivo?: string | null;
           usuario_id?: string | null;
           created_at?: string;
         };
@@ -969,6 +975,24 @@ export interface Database {
        * apps/admin/app/api/pdvlat/vincular. */
       vincular_integracion_pdv: {
         Args: { p_codigo: string; p_tenant_id: string };
+        Returns: Json;
+      };
+      // ── Corrección manual de stock ─────────────────────────────
+      // (supabase/migrations/20260914000000_ajuste_manual_de_stock.sql)
+      /** Fija la cantidad FINAL de un producto en una sucursal y registra
+       * la diferencia como un movimiento tipo 'ajuste', con motivo
+       * obligatorio y usuario_id = auth.uid(). Se llama desde el panel con
+       * sesión de usuario (solo admin/gerente/superadmin, chequeado adentro).
+       * p_cantidad_nueva en UNIDADES INDIVIDUALES, igual que
+       * movimientos_stock.delta. Ámbito sucursal, sin bodega. */
+      ajustar_stock: {
+        Args: {
+          p_empresa_id: string;
+          p_sucursal_id: string;
+          p_producto_id: string;
+          p_cantidad_nueva: number;
+          p_motivo: string;
+        };
         Returns: Json;
       };
       actualizar_usuario_superadmin: {

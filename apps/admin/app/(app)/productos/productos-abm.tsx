@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { createBrowserClient, type CampoPersonalizado } from "@farmacia/db";
+import { ajustarStock, createBrowserClient, type CampoPersonalizado } from "@farmacia/db";
 import { exportarCatalogoCompleto } from "@/lib/exportar-catalogo";
 
 interface ProductoFila {
@@ -118,6 +118,38 @@ interface SucursalOpcion {
   nombre: string;
 }
 
+// Stock de UNA sucursal para el producto que se está editando. Se guarda
+// por sucursal (y no un único "cargando" global) para que una sucursal
+// lenta no tape el número de las demás: el modal abre y cada fila se
+// completa cuando llega su respuesta.
+interface StockSucursal {
+  cargando: boolean;
+  /** Unidades individuales — stock_actual ya hace la conversión desde la
+   * foto en envases del conteo (ver 20260910000000). Puede tener
+   * decimales si productos.contenido los tiene. */
+  valor: number | null;
+  error: string | null;
+}
+
+// stock_actual devuelve numeric: casi siempre entero, pero un
+// productos.contenido fraccionario puede dejar decimales. No se redondea
+// (sería mentir sobre lo que dice la base), solo se recortan los ceros.
+function formatearStock(valor: number): string {
+  return Number.isInteger(valor) ? String(valor) : String(Math.round(valor * 100) / 100);
+}
+
+// Los errores de un RPC de Supabase llegan como PostgrestError (un objeto
+// plano con .message), NO como una instancia de Error — un
+// `e instanceof Error` los descartaría y perdería justo el mensaje que
+// importa acá ("Escribí por qué se corrige el stock").
+function mensajeDeError(e: unknown, fallback: string): string {
+  if (e && typeof e === "object" && "message" in e) {
+    const msg = (e as { message: unknown }).message;
+    if (typeof msg === "string" && msg.trim()) return msg;
+  }
+  return fallback;
+}
+
 const TAMANO_PAGINA = 50;
 
 // Mismo vocabulario fijo que ya usa /desconocidos (panel-detalle.tsx) para
@@ -203,6 +235,18 @@ export function ProductosAbm({
   const [panelColumnasAbierto, setPanelColumnasAbierto] = useState(false);
   const [camposPersonalizados, setCamposPersonalizados] = useState<CampoPersonalizado[]>([]);
 
+  // ── Stock del producto que se está editando ──────────────────
+  // Vive fuera de `form` a propósito: no es un campo del producto que se
+  // guarde con "Guardar", es un dato calculado (conteo cerrado +
+  // movimientos) que se corrige por su propio RPC.
+  const [stockPorSucursal, setStockPorSucursal] = useState<Map<string, StockSucursal>>(new Map());
+  const [ajusteAbierto, setAjusteAbierto] = useState<string | null>(null); // sucursal_id
+  const [ajusteCantidad, setAjusteCantidad] = useState("");
+  const [ajusteMotivo, setAjusteMotivo] = useState("");
+  const [ajustando, setAjustando] = useState(false);
+  const [ajusteError, setAjusteError] = useState<string | null>(null);
+  const [ajusteOk, setAjusteOk] = useState<string | null>(null);
+
   useEffect(() => {
     window.localStorage.setItem(LOCALSTORAGE_KEY_COLUMNAS, JSON.stringify(prefColumnas));
   }, [prefColumnas]);
@@ -273,6 +317,86 @@ export function ProductosAbm({
         setCamposPersonalizados(Array.isArray(raw) ? (raw as CampoPersonalizado[]) : []);
       });
   }, [supabase, empresaId]);
+
+  // Al abrir el modal de un producto QUE YA EXISTE, se pide el stock de
+  // cada sucursal en paralelo (un stock_actual por sucursal — no hay
+  // wrapper tipado para ese RPC en @farmacia/db porque nunca se llamó
+  // desde el panel; se usa .rpc() directo, igual que normalizar_codigo más
+  // abajo en este mismo archivo). Un producto nuevo todavía no tiene id ni
+  // stock del cual hablar, así que el efecto no hace nada.
+  const productoEditandoId = form?.id;
+  useEffect(() => {
+    setAjusteAbierto(null);
+    setAjusteCantidad("");
+    setAjusteMotivo("");
+    setAjusteError(null);
+    setAjusteOk(null);
+
+    if (!productoEditandoId || sucursales.length === 0) {
+      setStockPorSucursal(new Map());
+      return;
+    }
+
+    let cancelado = false;
+    setStockPorSucursal(
+      new Map(sucursales.map((s) => [s.id, { cargando: true, valor: null, error: null }]))
+    );
+
+    for (const s of sucursales) {
+      void supabase
+        .rpc("stock_actual", {
+          p_empresa_id: empresaId,
+          p_producto_id: productoEditandoId,
+          p_sucursal_id: s.id,
+        })
+        .then(({ data, error: rpcError }) => {
+          if (cancelado) return;
+          setStockPorSucursal((prev) =>
+            new Map(prev).set(s.id, {
+              cargando: false,
+              valor: rpcError ? null : Number(data ?? 0),
+              error: rpcError ? rpcError.message : null,
+            })
+          );
+        });
+    }
+
+    return () => {
+      cancelado = true;
+    };
+  }, [productoEditandoId, sucursales, supabase, empresaId]);
+
+  async function guardarAjusteStock(sucursalId: string) {
+    if (!productoEditandoId) return;
+    setAjustando(true);
+    setAjusteError(null);
+    setAjusteOk(null);
+    try {
+      const r = await ajustarStock(supabase, {
+        empresaId,
+        sucursalId,
+        productoId: productoEditandoId,
+        cantidadNueva: Number(ajusteCantidad),
+        motivo: ajusteMotivo,
+      });
+      // El RPC ya devolvió el stock resultante: no hace falta volver a
+      // preguntar por stock_actual.
+      setStockPorSucursal((prev) =>
+        new Map(prev).set(sucursalId, { cargando: false, valor: r.stock_nuevo, error: null })
+      );
+      const signo = r.delta >= 0 ? "+" : "";
+      setAjusteOk(
+        `Stock ajustado: ${formatearStock(r.stock_anterior)} → ${formatearStock(r.stock_nuevo)} (${signo}${r.delta})`
+      );
+      setAjusteAbierto(null);
+      setAjusteCantidad("");
+      setAjusteMotivo("");
+    } catch (e) {
+      setAjusteError(mensajeDeError(e, "No se pudo ajustar el stock."));
+    } finally {
+      setAjustando(false);
+    }
+  }
 
   async function exportarCatalogo() {
     setExportando(true);
@@ -1118,6 +1242,102 @@ export function ProductosAbm({
                     </label>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Stock: solo al EDITAR. Un producto que todavía no existe no
+                tiene stock del cual hablar, y el RPC necesita su id. */}
+            {form.id && sucursales.length > 0 && (
+              <div className="border-t border-line pt-4">
+                <span className="mb-1.5 block text-xs font-medium text-muted">
+                  Stock actual, en unidades sueltas (último conteo cerrado + ventas y ajustes posteriores)
+                </span>
+
+                {ajusteOk && (
+                  <p className="mb-2 rounded-md border border-ok/20 bg-ok-soft px-3 py-2 text-sm text-ok">
+                    {ajusteOk}
+                  </p>
+                )}
+                {ajusteError && (
+                  <p className="mb-2 rounded-md border border-danger/20 bg-danger-soft px-3 py-2 text-sm text-danger">
+                    {ajusteError}
+                  </p>
+                )}
+
+                <ul className="space-y-1.5">
+                  {sucursales.map((s) => {
+                    const st = stockPorSucursal.get(s.id);
+                    const abierto = ajusteAbierto === s.id;
+                    return (
+                      <li key={s.id} className="rounded-md border border-line px-3 py-2">
+                        <div className="flex items-center gap-3 text-sm">
+                          <span className="flex-1 text-ink">{s.nombre}</span>
+                          {!st || st.cargando ? (
+                            <span className="text-muted">cargando…</span>
+                          ) : st.error ? (
+                            <span className="text-danger">no se pudo leer</span>
+                          ) : (
+                            <span className="font-medium text-ink">{formatearStock(st.valor ?? 0)}</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAjusteError(null);
+                              setAjusteOk(null);
+                              if (abierto) {
+                                setAjusteAbierto(null);
+                                return;
+                              }
+                              setAjusteAbierto(s.id);
+                              setAjusteCantidad(st?.valor != null ? String(Math.round(st.valor)) : "");
+                              setAjusteMotivo("");
+                            }}
+                            className="font-medium text-brand hover:underline"
+                          >
+                            {abierto ? "Cancelar" : "Corregir"}
+                          </button>
+                        </div>
+
+                        {abierto && (
+                          <div className="mt-2 flex flex-wrap items-end gap-2">
+                            <label className="block">
+                              <span className="mb-1 block text-xs font-medium text-muted">Cantidad real</span>
+                              <input
+                                type="number"
+                                min={0}
+                                className="input w-28"
+                                value={ajusteCantidad}
+                                onChange={(e) => setAjusteCantidad(e.target.value)}
+                              />
+                            </label>
+                            <label className="block min-w-48 flex-1">
+                              <span className="mb-1 block text-xs font-medium text-muted">Motivo *</span>
+                              <input
+                                className="input"
+                                value={ajusteMotivo}
+                                onChange={(e) => setAjusteMotivo(e.target.value)}
+                                placeholder="Ej: se rompió una caja"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => guardarAjusteStock(s.id)}
+                              disabled={ajustando || !ajusteMotivo.trim() || ajusteCantidad.trim() === ""}
+                              className="rounded-md bg-brand px-3.5 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                            >
+                              {ajustando ? "Guardando…" : "Guardar"}
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                <p className="mt-1.5 text-xs text-muted">
+                  Para corregir una rotura, un faltante o un conteo mal cargado sin rehacer el conteo entero. Queda
+                  registrado quién, cuándo y por qué — el motivo es obligatorio.
+                </p>
               </div>
             )}
           </div>

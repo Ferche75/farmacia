@@ -643,6 +643,58 @@ export async function generarCodigoInvitacionPdv(
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Corrección manual de stock
+// ═══════════════════════════════════════════════════════════════
+// (supabase/migrations/20260914000000_ajuste_manual_de_stock.sql)
+
+export interface ResultadoAjusteStock {
+  /** Lo que decía stock_actual justo antes del ajuste. Puede tener
+   * decimales (productos.contenido fraccionario). */
+  stock_anterior: number;
+  stock_nuevo: number;
+  /** stock_nuevo - stock_anterior, redondeado a entero: es lo que se
+   * escribió en movimientos_stock.delta. Negativo descuenta. */
+  delta: number;
+}
+
+/** "El stock de este producto en esta sucursal ahora es N, porque X."
+ *
+ * Recibe la cantidad FINAL (lo que hay en el estante), no un delta — la
+ * diferencia contra stock_actual la calcula el RPC y la registra como un
+ * movimiento tipo 'ajuste' con usuario_id = auth.uid().
+ *
+ * `cantidadNueva` va en UNIDADES INDIVIDUALES (comprimido/ml/g), la misma
+ * unidad que devuelve stock_actual y que usa movimientos_stock.delta desde
+ * 20260910000000 — no en envases.
+ *
+ * `motivo` es obligatorio: el RPC rechaza el ajuste si viene vacío. Es a
+ * propósito, no una validación de formulario que se pueda saltear.
+ *
+ * Ámbito sucursal, sin bodega (stock_actual tampoco distingue bodegas).
+ * Solo admin/gerente/superadmin. */
+export async function ajustarStock(
+  supabase: SupabaseClient<Database>,
+  params: {
+    empresaId: string;
+    sucursalId: string;
+    productoId: string;
+    cantidadNueva: number;
+    motivo: string;
+  }
+): Promise<ResultadoAjusteStock> {
+  const { data, error } = await supabase.rpc("ajustar_stock", {
+    p_empresa_id: params.empresaId,
+    p_sucursal_id: params.sucursalId,
+    p_producto_id: params.productoId,
+    p_cantidad_nueva: params.cantidadNueva,
+    p_motivo: params.motivo,
+  });
+
+  if (error) throw error;
+  return data as unknown as ResultadoAjusteStock;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Estado de los dispositivos que están contando
 // ═══════════════════════════════════════════════════════════════
 // (supabase/migrations/20260912000000_estado_dispositivos_conteo.sql)
