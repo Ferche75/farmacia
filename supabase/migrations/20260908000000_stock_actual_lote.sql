@@ -17,6 +17,13 @@
 -- 20260901000000 y no se repite acá. Si alguna vez cambia uno de los dos,
 -- tienen que cambiar los dos.
 --
+-- ⚠ ENMIENDA: esta versión quedó reemplazada por
+-- 20260910000000_stock_en_unidades_individuales.sql (junto con
+-- stock_actual, en la misma migración, para que no se separen): devuelve
+-- `stock numeric` y multiplica la base del conteo por productos.contenido
+-- para pasarla de envases a unidades individuales. El criterio de
+-- agregación de abajo no cambió.
+--
 -- Lo único que cambia respecto de aquella es que producto_id deja de ser
 -- una constante y pasa a ser una columna más: entra al `distinct on` como
 -- primera clave (una foto por producto y por ámbito, no una sola por

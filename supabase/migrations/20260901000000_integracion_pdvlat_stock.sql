@@ -68,6 +68,13 @@ create policy movimientos_stock_select on movimientos_stock
 -- El stock de un producto = la última FOTO física + todo lo que se movió
 -- DESPUÉS de esa foto.
 --
+-- ⚠ ENMIENDA: esta versión quedó reemplazada por
+-- 20260910000000_stock_en_unidades_individuales.sql, que devuelve numeric
+-- y multiplica el término de la foto por productos.contenido para pasarlo
+-- de envases a unidades individuales. El criterio de agregación de abajo
+-- sigue siendo el vigente, palabra por palabra; lo único que cambia es la
+-- unidad de medida del resultado.
+--
 --  * La foto es `conteo_lineas.cantidad` del último conteo CERRADO que
 --    incluyó a ese producto — NO `lotes.cantidad`. `lotes` solo guarda lo
 --    que se escaneó con fecha de vencimiento (ver
@@ -162,8 +169,21 @@ $$;
 -- unidad de stock del sistema es "lo que se escanea". Multiplicar solo de
 -- un lado dejaría el stock descuadrado contra su propia foto base.
 --
+-- ⚠ ENMIENDA (20260910000000_stock_en_unidades_individuales.sql): desde
+-- esa migración, `cantidad` — y por lo tanto movimientos_stock.delta — se
+-- mide en UNIDADES INDIVIDUALES (comprimido/ml/g, según
+-- productos.unidad), NO en envases: pdvlat vende suelto y Farmacia
+-- normaliza todo a unidad en el borde de la API. El cuerpo de esta
+-- función no cambió (la cantidad ya se escribía tal cual en delta); lo
+-- que cambió es qué significa ese número. La foto física del conteo sigue
+-- siendo en envases y la conversión la hace stock_actual, multiplicando
+-- la base por productos.contenido. Si vas a escribir un movimiento de
+-- 'ingreso' o 'ajuste', el delta va en unidades: 10 cajas de 30 son +300,
+-- no +10.
+--
 -- p_lineas: [{"codigo_barra": "7790...", "cantidad": 2},
 --            {"producto_id": "uuid", "cantidad": 1}, ...]
+--            ↑ cantidad en unidades individuales (ver la enmienda arriba)
 create function registrar_venta(
   p_empresa_id uuid,
   p_sucursal_id uuid,

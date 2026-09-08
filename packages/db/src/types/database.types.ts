@@ -794,7 +794,12 @@ export interface Database {
       };
       // ── Integración con el POS externo pdvlat ──────────────────
       // (supabase/migrations/20260901000000_integracion_pdvlat_stock.sql)
-      /** SECURITY INVOKER: filtra por la RLS de quien llama. */
+      /** SECURITY INVOKER: filtra por la RLS de quien llama.
+       * Devuelve UNIDADES INDIVIDUALES (comprimido/ml/g, según
+       * productos.unidad), no envases: `numeric` en Postgres desde
+       * 20260910000000_stock_en_unidades_individuales.sql, porque la foto
+       * del conteo se multiplica por productos.contenido y ese factor
+       * puede tener decimales. Sigue llegando como `number` por JSON. */
       stock_actual: {
         Args: { p_empresa_id: string; p_producto_id: string; p_sucursal_id?: string | null };
         Returns: number;
@@ -802,7 +807,9 @@ export interface Database {
       /** Misma semántica que stock_actual pero para muchos productos en una
        * sola consulta (supabase/migrations/20260908000000). Devuelve una
        * fila por producto pedido, con 0 para los que no tienen historia.
-       * La usa el catálogo de pdvlat, que pagina de a 1000 SKU. */
+       * La usa el catálogo de pdvlat, que pagina de a 1000 SKU.
+       * `stock` en unidades individuales y posiblemente con decimales,
+       * igual que stock_actual. */
       stock_actual_lote: {
         Args: {
           p_empresa_id: string;
@@ -812,7 +819,9 @@ export interface Database {
         Returns: { producto_id: string; stock: number }[];
       };
       /** Solo service_role (EXECUTE revocado a anon/authenticated) — se
-       * llama desde apps/admin/app/api/pdvlat/ventas, nunca del browser. */
+       * llama desde apps/admin/app/api/pdvlat/ventas, nunca del browser.
+       * p_lineas[].cantidad en UNIDADES INDIVIDUALES, no en envases
+       * (20260910000000_stock_en_unidades_individuales.sql). */
       registrar_venta: {
         Args: {
           p_empresa_id: string;

@@ -50,6 +50,13 @@ interface FilaLote {
 // /api/pdvlat/ventas. Se resuelve con UNA llamada por página, no una por
 // producto: con `limite=1000` eso sería un N+1 de mil round-trips.
 //
+// `stock` y `precio_venta` van en UNIDADES INDIVIDUALES (comprimido, ml,
+// g — lo que diga `unidad`), no en envases: pdvlat vende suelto y
+// Farmacia normaliza acá, en el borde de la API, para que del otro lado
+// la cuenta sea siempre cantidad × precio_venta. El factor es
+// `contenido` (unidades por envase). Ver
+// 20260910000000_stock_en_unidades_individuales.sql.
+//
 // El empresa_id NO se recibe por querystring: sale del api_key. Aceptarlo
 // como parámetro sería regalar un enumerador de catálogos ajenos (con
 // costo y precio adentro) a cualquiera que tenga una credencial válida.
@@ -163,6 +170,16 @@ export async function GET(request: Request) {
     const principal = codigos.find((c) => c.es_principal) ?? codigos[0] ?? null;
     const lotes = lotesPorProducto.get(fila.producto_id) ?? [];
 
+    // Unidades que trae un envase. Mismo fallback que el
+    // `coalesce(nullif(contenido, 0), 1)` de stock_actual (ver
+    // 20260910000000_stock_en_unidades_individuales.sql): contenido en 0
+    // es un dato malo de importación y dividir por él daría Infinity;
+    // contenido nulo es "nunca se cargó el tamaño del envase", y se
+    // asume envase == unidad.
+    const contenido = fila.productos.contenido;
+    const unidadesPorEnvase =
+      contenido !== null && contenido > 0 ? contenido : 1;
+
     return {
       producto_id: fila.producto_id,
       nombre: fila.productos.nombre,
@@ -182,15 +199,30 @@ export async function GET(request: Request) {
       // tener el EAN de la caja y el del blister, y el POS tiene que
       // poder matchear cualquiera de los dos.
       codigos_barra: codigos.map((c) => c.codigo_norm),
-      // Bs (moneda de referencia del proyecto).
+      // Bs (moneda de referencia del proyecto). `costo` es del envase
+      // (es lo que se le paga al proveedor, y pdvlat no compra).
       costo: fila.costo,
-      precio_venta: fila.precio,
+      // Precio POR UNIDAD INDIVIDUAL (comprimido/ml/g, según `unidad`),
+      // no por envase: productos_empresa.precio es el precio de la caja y
+      // acá se divide por `contenido`. Es lo que hace que del lado de
+      // pdvlat la cuenta sea siempre cantidad × precio_venta, compre 1
+      // comprimido o la caja entera. Redondeado a 2 decimales, la
+      // precisión de la moneda: el POS cobra en Bs, un precio unitario
+      // con más decimales no se puede ni cobrar ni cuadrar contra el
+      // vuelto. Ver 20260910000000_stock_en_unidades_individuales.sql.
+      precio_venta:
+        fila.precio === null
+          ? null
+          : Math.round((fila.precio / unidadesPorEnvase) * 100) / 100,
       stock_minimo: fila.stock_minimo,
-      // Existencia autoritativa de ahora (ver el comentario de arriba). 0
-      // para un producto sin conteos ni movimientos.
+      // Existencia autoritativa de ahora (ver el comentario de arriba),
+      // también en UNIDADES INDIVIDUALES: stock_actual_lote ya convierte
+      // la foto del conteo (que es en envases) multiplicándola por
+      // `contenido`. 0 para un producto sin conteos ni movimientos.
       stock: stockPorProducto.get(fila.producto_id) ?? 0,
       // Desglose por lote/vencimiento SOLO informativo: `cantidad` es lo
-      // que dijo el último conteo físico de ese lote, no el stock de hoy
+      // que dijo el último conteo físico de ese lote — en ENVASES, sin
+      // convertir, porque es lo que se escaneó — y no el stock de hoy
       // (sirve para vigilar vencimientos, no para saber cuánto hay).
       // Vencimiento más próximo primero (el order by de arriba).
       lotes: lotes.map((l) => ({
