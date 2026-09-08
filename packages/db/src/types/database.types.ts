@@ -738,6 +738,60 @@ export interface Database {
           },
         ];
       };
+      // Una fila por importación de catálogo. La escriben los RPC
+      // (iniciar_importacion / confirmar_importacion_lote /
+      // finalizar_importacion); acá se declara porque /importar/historial
+      // la lee derecho con select. Ver
+      // supabase/migrations/20260806000001_catalogo_conteo.sql
+      importaciones: {
+        Row: {
+          id: string;
+          empresa_id: string;
+          archivo: string;
+          mapeo: Json | null;
+          filas_ok: number;
+          filas_error: number;
+          /** Un objeto por fila rechazada (FilaRechazadaImportacion en
+           * packages/db/src/rpc.ts). Se acumula lote a lote desde la
+           * primera versión del RPC, así que toda importación con
+           * filas_error > 0 tiene su detalle acá. */
+          log: Json | null;
+          estado: string;
+          creado_por: string;
+          created_at: string;
+          sucursal_ids: string[];
+        };
+        Insert: {
+          id?: string;
+          empresa_id: string;
+          archivo: string;
+          mapeo?: Json | null;
+          filas_ok?: number;
+          filas_error?: number;
+          log?: Json | null;
+          estado?: string;
+          creado_por: string;
+          created_at?: string;
+          sucursal_ids?: string[];
+        };
+        Update: Partial<Database["public"]["Tables"]["importaciones"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "importaciones_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "importaciones_creado_por_fkey";
+            columns: ["creado_por"];
+            isOneToOne: false;
+            referencedRelation: "perfiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: {

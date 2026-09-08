@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requirePerfilAdmin } from "@/lib/dal";
 import { createServerClient } from "@farmacia/db/server";
 import { Importador } from "./importador";
@@ -33,7 +34,13 @@ export default async function ImportarPage() {
     <div>
       <h1 className="mb-1 text-2xl font-semibold tracking-tight text-ink">Importar catálogo</h1>
       <p className="mb-6 text-sm text-muted">
-        Elegí la sucursal, subí el archivo, mapeá sus columnas y revisá el resumen antes de confirmar. Nada se escribe hasta que confirmás.
+        Elegí la sucursal, subí el archivo, mapeá sus columnas y revisá el resumen antes de confirmar. Nada se escribe hasta que confirmás.{" "}
+        {/* El resumen de rechazos que aparece al terminar se cierra y no
+            vuelve; acá está el mismo detalle de todas las importaciones
+            anteriores. */}
+        <Link href="/importar/historial" className="font-medium text-brand hover:underline">
+          Ver historial de importaciones
+        </Link>
       </p>
       <Importador empresaId={perfil.empresaId} sucursales={sucursales ?? []} camposRequeridos={camposRequeridos} />
     </div>
