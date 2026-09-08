@@ -178,16 +178,25 @@ const COLUMNAS_FIJAS: { id: string; label: string }[] = [
   { id: "principioActivo", label: "Principio activo" },
   { id: "categoria", label: "Categoría" },
   { id: "fabricante", label: "Fabricante" },
+  { id: "stock", label: "Stock" },
   { id: "disponibleEn", label: "Disponible en" },
   { id: "sucursal", label: "Sucursal (vencimiento)" },
   { id: "vencimiento", label: "Vencimiento" },
   { id: "estado", label: "Estado" },
 ];
 
-// Default deliberadamente angosto — mostrar las 11 columnas de una era
+// Default deliberadamente angosto — mostrar las 12 columnas de una era
 // justamente la queja de "esto es un asco a nivel diseño". El resto
 // sigue a un click en "Columnas", no se pierde nada.
-const COLUMNAS_VISIBLES_DEFAULT = ["codigoBarra", "laboratorio", "contenido", "unidad", "estado"];
+//
+// "stock" sí entra al default (y es la única que se sumó desde entonces):
+// es el dato que se viene a mirar a esta pantalla, no un detalle de ficha
+// como fabricante o principio activo. Quien no lo quiera lo destilda una
+// vez y queda guardado. Ojo: a quien ya tenga una preferencia guardada en
+// localStorage este default no lo toca — le llega igual, por la
+// reconciliación de "columna nueva" de más abajo, que la agrega visible al
+// final.
+const COLUMNAS_VISIBLES_DEFAULT = ["codigoBarra", "laboratorio", "contenido", "unidad", "stock", "estado"];
 
 const LOCALSTORAGE_KEY_COLUMNAS = "farmacia_productos_columnas_v1";
 
@@ -225,6 +234,11 @@ export function ProductosAbm({
   const [camposExtraPorProducto, setCamposExtraPorProducto] = useState<Map<string, Record<string, string>>>(
     new Map()
   );
+  // Stock de la columna de la lista: una entrada por producto visible, en
+  // unidades individuales y sumado sobre TODAS las sucursales/bodegas de
+  // la empresa (ver el fetch). Es un mapa distinto de `stockPorSucursal`
+  // de más abajo, que es el desglose por sucursal del modal de edición.
+  const [stockPorProducto, setStockPorProducto] = useState<Map<string, number>>(new Map());
   const [sucursales, setSucursales] = useState<SucursalOpcion[]>([]);
   const [buscando, setBuscando] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
@@ -525,6 +539,30 @@ export function ProductosAbm({
       }
       setCamposExtraPorProducto(extraPorProducto);
 
+      // Stock de toda la página en UNA llamada: stock_actual_lote
+      // (20260908000000, reescrita en 20260910000000), la versión batch de
+      // la que usa el modal. Un stock_actual por fila serían 50
+      // round-trips por tecla del buscador — el mismo N+1 que ya se evitó
+      // en /api/pdvlat/catalogo, que llama a esta misma función.
+      //
+      // p_sucursal_id: null a propósito — esta lista no está parada en
+      // ninguna sucursal (el desglose por sucursal es cosa del modal), así
+      // que se muestra el total de la empresa: sin sucursal, la función
+      // agrega todos los ámbitos (sucursal/bodega).
+      const { data: stockData } = idsVisibles.length
+        ? await supabase.rpc("stock_actual_lote", {
+            p_empresa_id: empresaId,
+            p_producto_ids: idsVisibles,
+            p_sucursal_id: null,
+          })
+        : { data: [] };
+
+      const stockDeProducto = new Map<string, number>();
+      for (const s of stockData ?? []) {
+        stockDeProducto.set(s.producto_id, Number(s.stock));
+      }
+      setStockPorProducto(stockDeProducto);
+
       setBuscando(false);
     }, 300);
     return () => clearTimeout(t);
@@ -755,6 +793,17 @@ export function ProductosAbm({
         return p.categoria ?? "—";
       case "fabricante":
         return p.fabricante ?? "—";
+      case "stock": {
+        // 0 es un dato REAL y hay que mostrarlo como 0: significa "no hay
+        // existencia" (nunca se contó, o se vendió todo), no "no sé". El
+        // "—" queda solo como red de seguridad: stock_actual_lote devuelve
+        // una fila por producto pedido, incluidos los que no tienen
+        // ninguna historia, así que en la práctica no debería faltar
+        // ninguna.
+        const stock = stockPorProducto.get(p.id);
+        if (stock === undefined) return "—";
+        return <span className={stock > 0 ? "text-ink" : "text-muted"}>{formatearStock(stock)}</span>;
+      }
       case "disponibleEn": {
         const disp = disponiblesPorProducto.get(p.id);
         if (!disp || disp.length === 0) return "—";
