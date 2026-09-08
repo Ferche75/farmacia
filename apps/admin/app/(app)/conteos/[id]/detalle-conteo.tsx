@@ -110,10 +110,8 @@ export function DetalleConteo({
                 : `Quedan ${pendientesDesconocidos} código(s) sin identificar en este conteo — se pueden resolver después desde la bandeja de revisión.`}
             </li>
             <li>
-              Antes de confirmar, mirá &quot;Dispositivos&quot; más abajo: ahí está lo que
-              cada celular reportó que le quedó sin subir. Ojo con la columna
-              &quot;Visto&quot; — si es vieja, ese dato también lo es (el celular está sin
-              red) y puede haber más pendientes de los que figuran.
+              Revisá &quot;Dispositivos&quot; antes de confirmar: si algún celular no tiene
+              conexión reciente, puede tener escaneos pendientes que todavía no llegaron.
             </li>
           </ul>
           <div className="flex gap-3">

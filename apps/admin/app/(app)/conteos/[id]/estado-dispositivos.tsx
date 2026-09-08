@@ -106,9 +106,9 @@ export function EstadoDispositivos({ conteoId }: { conteoId: string }) {
     <div className="mt-8 border-t border-line pt-6">
       <h2 className="mb-1 text-lg font-semibold tracking-tight text-ink">Dispositivos</h2>
       <p className="mb-3 text-sm text-muted">
-        Qué le quedó sin subir a cada celular que contó acá. Se actualiza solo mientras el
-        dispositivo tenga señal — si &quot;visto&quot; quedó viejo, el celular está sin red o
-        apagado, y lo que tenga pendiente sigue sin llegar.
+        Estado de los celulares que participaron en este conteo. Si la columna
+        &quot;Visto&quot; está desactualizada, ese dispositivo está sin conexión y puede tener
+        datos pendientes de subir.
       </p>
 
       {estados.length === 0 ? (
