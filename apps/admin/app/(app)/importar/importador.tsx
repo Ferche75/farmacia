@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   createBrowserClient,
   iniciarImportacion,
@@ -11,6 +12,7 @@ import {
   type Json,
   type ResultadoPrevisualizacion,
   type FilaRechazadaImportacion,
+  type FilaImportacion,
 } from "@farmacia/db";
 import {
   CAMPOS_SISTEMA,
@@ -22,7 +24,7 @@ import {
 import { parseArchivo, aplicarMapeo, trocear, type ArchivoParseado } from "@/lib/importacion";
 // Compartido con /importar/historial, que muestra el MISMO log leído de
 // la base — una sola tabla de motivos para las dos pantallas.
-import { textoMotivo, identificadorFila } from "@/lib/motivos-rechazo-importacion";
+import { textoMotivo, identificadorFila, detalleTecnico } from "@/lib/motivos-rechazo-importacion";
 
 type Paso = "laboratorio" | "mapeo" | "preview" | "confirmando" | "listo";
 
@@ -56,6 +58,20 @@ interface Progreso {
    * solo el suyo. Debería tener exactamente `rechazados` elementos. */
   log: FilaRechazadaImportacion[];
 }
+
+/** Lo que hace falta para retomar una importación que se cortó a mitad de
+ * camino: el id que ya se abrió en la base y los lotes ya troceados. Se
+ * guarda apenas arranca `confirmar()`, antes del primer lote, así el botón
+ * de reintentar existe incluso si el que falla es el lote 1. */
+interface Reanudable {
+  importacionId: string;
+  laboratorio: string | null;
+  lotes: FilaImportacion[][];
+}
+
+type Acumulado = Omit<Progreso, "lote" | "totalLotes">;
+
+const ACUMULADO_VACIO: Acumulado = { creados: 0, actualizados: 0, rechazados: 0, log: [] };
 
 // Las 3 columnas del wizard están siempre en pantalla, una al lado de la
 // otra — no se reemplaza una por otra al avanzar. La que todavía no tiene
@@ -95,8 +111,10 @@ export function Importador({
   const [ordenCampos, setOrdenCampos] = useState(() => CAMPOS_SISTEMA.map((c) => c.campo));
   const [preview, setPreview] = useState<ResultadoPrevisualizacion | null>(null);
   const [progreso, setProgreso] = useState<Progreso | null>(null);
+  const [reanudable, setReanudable] = useState<Reanudable | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
+  const [reintentando, setReintentando] = useState(false);
 
   useEffect(() => {
     supabase
@@ -214,12 +232,49 @@ export function Importador({
     }
   }
 
+  /** Corre los lotes de `desde` en adelante acumulando sobre lo que ya
+   * venía. `progreso` se actualiza DESPUÉS de cada lote que termina bien,
+   * nunca antes: si uno tira (se cayó la conexión, timeout, error del
+   * servidor) la excepción sube sin tocar `progreso`, así que lo que quedó
+   * en pantalla es exactamente hasta dónde llegó de verdad.
+   *
+   * Solo finaliza la importación si el for llega al final — un corte a
+   * mitad deja la fila en 'pendiente'/'procesando', que es la verdad y es
+   * justo lo que /importar/historial sabe mostrar en amarillo. */
+  async function procesarLotes(
+    importacionId: string,
+    lab: string | null,
+    lotes: FilaImportacion[][],
+    desde: number,
+    inicial: Acumulado
+  ) {
+    let acc = inicial;
+    for (let i = desde; i < lotes.length; i++) {
+      const r = await confirmarImportacionLote(supabase, importacionId, lab, lotes[i]);
+      acc = {
+        creados: acc.creados + r.creados,
+        actualizados: acc.actualizados + r.actualizados,
+        rechazados: acc.rechazados + r.rechazados,
+        // El RPC devuelve el log de SU lote nomás; el detalle del archivo
+        // entero se arma acá (y queda igual en importaciones.log).
+        log: [...acc.log, ...(r.log ?? [])],
+      };
+      setProgreso({ lote: i + 1, totalLotes: lotes.length, ...acc });
+    }
+
+    await finalizarImportacion(supabase, importacionId);
+    setPaso("listo");
+  }
+
   async function confirmar() {
     if (!archivo) return;
     setPaso("confirmando");
     setError(null);
+    setProgreso(null);
+    setReanudable(null);
     try {
       const filas = aplicarMapeo(archivo.filas, mapeo, margen ? Number(margen) : undefined);
+      const lab = laboratorio.trim() || null;
       const importacionId = await iniciarImportacion(
         supabase,
         nombreArchivo,
@@ -227,30 +282,45 @@ export function Importador({
         sucursalIds
       );
       const lotes = trocear(filas, TAMANO_LOTE_IMPORTACION);
+      setReanudable({ importacionId, laboratorio: lab, lotes });
 
-      let acc: Omit<Progreso, "lote" | "totalLotes"> = {
-        creados: 0,
-        actualizados: 0,
-        rechazados: 0,
-        log: [],
-      };
-      for (let i = 0; i < lotes.length; i++) {
-        const r = await confirmarImportacionLote(supabase, importacionId, laboratorio.trim() || null, lotes[i]);
-        acc = {
-          creados: acc.creados + r.creados,
-          actualizados: acc.actualizados + r.actualizados,
-          rechazados: acc.rechazados + r.rechazados,
-          // El RPC devuelve el log de SU lote nomás; el detalle del archivo
-          // entero se arma acá (y queda igual en importaciones.log).
-          log: [...acc.log, ...(r.log ?? [])],
-        };
-        setProgreso({ lote: i + 1, totalLotes: lotes.length, ...acc });
-      }
-
-      await finalizarImportacion(supabase, importacionId);
-      setPaso("listo");
+      await procesarLotes(importacionId, lab, lotes, 0, ACUMULADO_VACIO);
     } catch (e) {
       setError(e instanceof Error ? e.message : "La importación falló a mitad de camino.");
+    }
+  }
+
+  /** Vuelve a mandar el lote que falló y, si esta vez sale, sigue con los
+   * que quedaban — no rearranca el archivo ni repite los que ya entraron.
+   *
+   * Índice del lote a reintentar: `progreso.lote` es i + 1 del último lote
+   * que SÍ terminó, o sea que también es el índice del siguiente sin
+   * procesar. Sin `progreso` todavía, falló el primero: índice 0. */
+  async function reintentarDesdeElCorte() {
+    if (!reanudable) return;
+    setReintentando(true);
+    setError(null);
+    try {
+      await procesarLotes(
+        reanudable.importacionId,
+        reanudable.laboratorio,
+        reanudable.lotes,
+        progreso ? progreso.lote : 0,
+        progreso
+          ? {
+              creados: progreso.creados,
+              actualizados: progreso.actualizados,
+              rechazados: progreso.rechazados,
+              log: progreso.log,
+            }
+          : ACUMULADO_VACIO
+      );
+    } catch (e) {
+      // Cae de nuevo en la pantalla de falla, con el `progreso` intacto:
+      // sigue diciendo hasta dónde se llegó realmente.
+      setError(e instanceof Error ? e.message : "El reintento también falló.");
+    } finally {
+      setReintentando(false);
     }
   }
 
@@ -265,6 +335,8 @@ export function Importador({
     setOrdenCampos(CAMPOS_SISTEMA.map((c) => c.campo));
     setPreview(null);
     setProgreso(null);
+    setReanudable(null);
+    setReintentando(false);
     setError(null);
   }
 
@@ -292,7 +364,11 @@ export function Importador({
         ))}
       </ol>
 
-      {error && (
+      {/* Durante "confirmando" el error no va acá: la columna de Revisión
+          muestra la falla con contexto (hasta dónde llegó, qué hacer). Esta
+          banda suelta con el mensaje crudo sería el mismo texto dos veces,
+          y el importante es el de abajo. */}
+      {error && paso !== "confirmando" && (
         <p className="mb-4 rounded-md border border-danger/20 bg-danger-soft px-3 py-2 text-sm text-danger">
           {error}
         </p>
@@ -498,10 +574,69 @@ export function Importador({
 
       <div>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Revisión</h2>
-        {paso === "confirmando" ? (
+        {paso === "confirmando" && error ? (
+          // La importación se cortó entera (no es un rechazo de filas, eso
+          // se cuenta aparte y sigue de largo): se cayó la conexión, hubo
+          // timeout o el servidor devolvió error. Lo que ya se escribió
+          // está escrito — cada confirmar_importacion_lote actualiza
+          // importaciones.filas_ok/filas_error/log al cerrar SU llamada, sin
+          // depender de que la respuesta llegue al navegador.
+          <div className="space-y-4 rounded-lg border border-danger/20 bg-surface p-6">
+            <div>
+              <p className="text-sm font-semibold text-danger">La importación se cortó a mitad de camino</p>
+              <p className="mt-2 text-sm text-ink">
+                {progreso
+                  ? `Ya se procesaron bien ${progreso.lote} de ${progreso.totalLotes} lotes antes del corte: ${progreso.creados} creados, ${progreso.actualizados} actualizados, ${progreso.rechazados} rechazados. Eso ya quedó guardado, no se pierde.`
+                  : `Falló en el primer lote${
+                      reanudable ? ` de ${reanudable.lotes.length}` : ""
+                    }, así que todavía no se guardó ningún producto.`}
+              </p>
+            </div>
+
+            <p className="rounded-md border border-line bg-paper px-3 py-2 text-xs text-muted">
+              <span className="font-medium text-ink">Detalle técnico: </span>
+              <span className="font-mono">{error}</span>
+            </p>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Reintentar manda de nuevo EL MISMO lote que falló y, si
+                  sale, sigue con los que quedaban. Repetir un lote es
+                  seguro aunque del otro lado sí se haya llegado a escribir
+                  (la respuesta se perdió en el camino): confirmar_importacion_lote
+                  busca primero codigos_barra.codigo_norm y, si el producto
+                  ya existe, se va por la rama de UPDATE en vez de crear;
+                  las filas sin código se emparejan por nombre exacto y
+                  nunca crean nada. O sea: no duplica productos. Lo único
+                  que se re-suma en ese caso son los contadores de
+                  importaciones.filas_ok/filas_error del historial. */}
+              <button
+                onClick={reintentarDesdeElCorte}
+                disabled={!reanudable || reintentando}
+                className="rounded-md bg-brand px-3 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {reintentando ? "Reintentando…" : "Reintentar este lote"}
+              </button>
+              <button
+                onClick={empezarDeNuevo}
+                className="text-sm text-muted transition-colors hover:text-ink"
+              >
+                Cancelar y empezar de nuevo
+              </button>
+            </div>
+
+            <p className="text-xs text-muted">
+              Si preferís no reintentar ahora, en{" "}
+              <Link href="/importar/historial" className="font-medium text-brand hover:underline">
+                el historial de importaciones
+              </Link>{" "}
+              podés ver exactamente cuántas filas entraron y cuáles se rechazaron. Esta importación va a
+              figurar sin terminar hasta que la completes.
+            </p>
+          </div>
+        ) : paso === "confirmando" ? (
           <div className="rounded-lg border border-line bg-surface p-6">
             <p className="mb-3 text-sm text-ink">
-              Procesando lote {progreso?.lote ?? 0} de {progreso?.totalLotes ?? "…"}…
+              Procesando lote {progreso?.lote ?? 0} de {progreso?.totalLotes ?? reanudable?.lotes.length ?? "…"}…
             </p>
             <div className="h-2 w-full overflow-hidden rounded-full bg-paper">
               <div
@@ -611,6 +746,15 @@ export function Importador({
                       <li key={`${f.motivo}-${identificadorFila(f)}-${i}`} className="px-3 py-2">
                         <p className="font-mono text-sm text-ink">{identificadorFila(f)}</p>
                         <p className="mt-0.5 text-xs text-muted">{textoMotivo(f.motivo)}</p>
+                        {/* Solo 'error_inesperado' trae detalle: el error
+                            crudo de Postgres, en chico y aparte, para
+                            cuando el texto de arriba no alcanza para dar
+                            con la celda. Igual que en /importar/historial. */}
+                        {detalleTecnico(f) && (
+                          <p className="mt-0.5 font-mono text-[11px] text-muted opacity-70">
+                            {detalleTecnico(f)}
+                          </p>
+                        )}
                       </li>
                     ))}
                   </ul>

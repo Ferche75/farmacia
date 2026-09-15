@@ -10,8 +10,10 @@ import type { FilaRechazadaImportacion } from "@farmacia/db";
 // tabla, tarde o temprano una se actualiza y la otra no, y el usuario ve
 // dos explicaciones distintas para el mismo rechazo.
 //
-// El contrato de los 6 códigos está documentado en
-// supabase/migrations/20260909000000_importacion_log_en_respuesta.sql
+// El contrato de los 6 primeros códigos está documentado en
+// supabase/migrations/20260909000000_importacion_log_en_respuesta.sql, y
+// el séptimo ('error_inesperado') en
+// supabase/migrations/20260916000000_importacion_fila_rota_no_tumba_el_lote.sql
 
 // Los códigos traducidos a lo que tiene que HACER quien importó para
 // arreglar la planilla. El texto asume cero contexto técnico: nada de "no
@@ -28,6 +30,13 @@ export const MOTIVOS_RECHAZO: Record<string, string> = {
     "Ese código de barras ya venía en otra fila del archivo. Se usó la primera y esta se descartó: dejá una sola fila por código.",
   ya_pertenece_a_otro_laboratorio:
     "Ese código de barras ya está cargado en el sistema bajo otro laboratorio. Para no pisar el producto de otro proveedor, revisá que el laboratorio de esta importación sea el correcto.",
+  // El único de los 7 que no se detecta antes de escribir sino que salta
+  // al guardar, y el único que trae `detalle`. En la práctica casi
+  // siempre es un número imposible en costo, precio o contenido (una
+  // fórmula rota de Excel, una coma decimal de más), así que el texto
+  // manda directo a esos campos en vez de hablar de la base.
+  error_inesperado:
+    "Hubo un problema guardando esta fila que no se pudo identificar de antemano — probablemente un número con un formato raro (costo, precio o contenido). Revisá esos campos en la planilla.",
 };
 
 export function textoMotivo(motivo: string): string {
@@ -40,4 +49,16 @@ export function identificadorFila(fila: FilaRechazadaImportacion): string {
   if (fila.codigo_barra) return fila.codigo_barra;
   if (fila.nombre) return `"${fila.nombre}"`;
   return "(fila sin código ni nombre)";
+}
+
+/** El renglón técnico opcional que acompaña al motivo: el error crudo de
+ * Postgres que hoy solo trae 'error_inesperado'. Devuelve null cuando no
+ * hay nada que mostrar, así las dos pantallas lo pintan con el mismo
+ * `&&` y ninguna inventa su propia regla de cuándo aparece.
+ *
+ * Vive acá por lo mismo que textoMotivo/identificadorFila: el popup en
+ * vivo y /importar/historial muestran el MISMO log y no pueden divergir. */
+export function detalleTecnico(fila: FilaRechazadaImportacion): string | null {
+  const detalle = fila.detalle?.trim();
+  return detalle ? detalle : null;
 }

@@ -343,13 +343,14 @@ export interface ResultadoPrevisualizacion {
   filas: FilaClasificada[];
 }
 
-/** Una fila que el lote rechazó. `motivo` es uno de los 6 códigos que
+/** Una fila que el lote rechazó. `motivo` es uno de los 7 códigos que
  * arma confirmar_importacion_lote (codigo_invalido,
  * producto_no_encontrado_por_nombre, nombre_ambiguo,
  * nombre_duplicado_en_archivo, codigo_duplicado_en_archivo,
- * ya_pertenece_a_otro_laboratorio) — se tipa como string y no como unión
- * cerrada a propósito: la traducción a castellano vive en la UI y tiene
- * que degradar sin romperse si la migración agrega un motivo nuevo.
+ * ya_pertenece_a_otro_laboratorio, error_inesperado) — se tipa como
+ * string y no como unión cerrada a propósito: la traducción a castellano
+ * vive en la UI y tiene que degradar sin romperse si la migración agrega
+ * un motivo nuevo.
  *
  * Viene `codigo_barra` O `nombre` según cómo se hubiera emparejado la
  * fila, nunca los dos. */
@@ -358,6 +359,11 @@ export interface FilaRechazadaImportacion {
   codigo_barra?: string | null;
   nombre?: string | null;
   producto_id?: string | null;
+  /** El error crudo de Postgres (sqlstate + sqlerrm). Solo lo trae
+   * 'error_inesperado': los otros 6 motivos se detectan ANTES de
+   * escribir y no tienen nada técnico que contar. Ver
+   * supabase/migrations/20260916000000_importacion_fila_rota_no_tumba_el_lote.sql. */
+  detalle?: string | null;
 }
 
 export interface ResultadoConfirmarLote {

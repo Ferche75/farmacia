@@ -4,7 +4,7 @@ import { Fragment, useState } from "react";
 import type { FilaRechazadaImportacion } from "@farmacia/db";
 // Las MISMAS funciones que usa el popup de importador.tsx: sobre el mismo
 // log tienen que decir exactamente lo mismo, en vivo o meses después.
-import { textoMotivo, identificadorFila } from "@/lib/motivos-rechazo-importacion";
+import { textoMotivo, identificadorFila, detalleTecnico } from "@/lib/motivos-rechazo-importacion";
 
 export interface ImportacionFila {
   id: string;
@@ -125,6 +125,15 @@ export function HistorialImportaciones({ importaciones }: { importaciones: Impor
                             <li key={`${f.motivo}-${identificadorFila(f)}-${idx}`} className="px-3 py-2">
                               <p className="font-mono text-sm text-ink">{identificadorFila(f)}</p>
                               <p className="mt-0.5 text-xs text-muted">{textoMotivo(f.motivo)}</p>
+                              {/* Solo 'error_inesperado' trae detalle: el
+                                  error crudo de Postgres, en chico y
+                                  aparte, para cuando el texto de arriba
+                                  no alcanza para dar con la celda. */}
+                              {detalleTecnico(f) && (
+                                <p className="mt-0.5 font-mono text-[11px] text-muted opacity-70">
+                                  {detalleTecnico(f)}
+                                </p>
+                              )}
                             </li>
                           ))}
                         </ul>
