@@ -169,8 +169,8 @@ export default async function ConfiguracionPage() {
     <div>
       <h1 className="mb-1 text-2xl font-semibold tracking-tight text-ink">Mi empresa</h1>
       <p className="mb-6 text-sm text-muted">
-        Datos de contacto, sucursales, bodegas y equipo de tu empresa. Podés dar de alta operarios vos mismo; para el
-        NIT, el país, o un admin/gerente nuevo, pedile al superadmin.
+        Datos de contacto, sucursales, bodegas y equipo de tu empresa. Podés dar de alta y administrar operarios vos
+        mismo; para el NIT, el país, o un admin/gerente nuevo, pedile al superadmin.
       </p>
       <div className="space-y-6">
         <Seccion
@@ -192,7 +192,7 @@ export default async function ConfiguracionPage() {
             tiene que existir el lugar y recién después la persona. */}
         <Seccion
           titulo="Empleados"
-          descripcion="Quién trabaja en tu empresa. Podés crear operarios (los que hacen los conteos) y elegirles las sucursales; para un admin o gerente nuevo, o para dar de baja a alguien, pedile al superadmin."
+          descripcion="Quién trabaja en tu empresa. Podés crear operarios (los que hacen los conteos), moverlos de sucursal y darlos de baja; para un admin o gerente nuevo, o para cambiarle el rol a alguien, pedile al superadmin."
         >
           <Empleados empleados={empleados} sucursales={sucursales ?? []} />
         </Seccion>
