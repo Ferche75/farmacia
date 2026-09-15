@@ -7,6 +7,7 @@ import { SucursalesBodegas } from "./sucursales-bodegas";
 import { ConfigOperativa } from "./config-operativa";
 import { CamposPersonalizados } from "./campos-personalizados";
 import { IntegracionPdv, type EstadoIntegracionPdv } from "./integracion-pdv";
+import { Empleados } from "./empleados";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +99,46 @@ export default async function ConfiguracionPage() {
 
   if (errorBodegas) throw new Error(`No se pudieron cargar las bodegas: ${errorBodegas.message}`);
 
+  // perfiles_select (20260806000000_tenancy.sql) ya deja leer todos los
+  // perfiles de la propia empresa, así que no hace falta filtrar de más
+  // ni pasar por la service_role. El email NO se trae: vive en
+  // auth.users y solo se puede leer con la Admin API — el panel de
+  // superadmin sí lo hace, esta pantalla no lo necesita para listar.
+  // Orden por rol y después por nombre: agrupa admin/gerente arriba y
+  // deja el pelotón de operarios junto, que es como se lee la lista.
+  const { data: perfiles, error: errorPerfiles } = await supabase
+    .from("perfiles")
+    .select("id, nombre, rol, activo")
+    .eq("empresa_id", perfil.empresaId)
+    .order("rol")
+    .order("nombre");
+
+  if (errorPerfiles) throw new Error(`No se pudieron cargar los empleados: ${errorPerfiles.message}`);
+
+  // Las sucursales asignadas se piden aparte y se cruzan acá, igual que
+  // en superadmin/[empresaId]/page.tsx — se manda solo el id y el nombre
+  // lo resuelve el componente contra la lista de `sucursales` que ya
+  // recibe, sin traer la misma fila dos veces.
+  const perfilIds = (perfiles ?? []).map((p) => p.id);
+  const { data: perfilesSucursal, error: errorPerfilesSucursal } = perfilIds.length
+    ? await supabase.from("perfiles_sucursal").select("perfil_id, sucursal_id").in("perfil_id", perfilIds)
+    : { data: [], error: null };
+
+  if (errorPerfilesSucursal)
+    throw new Error(`No se pudieron cargar las sucursales del equipo: ${errorPerfilesSucursal.message}`);
+
+  const sucursalIdsPorPerfil = new Map<string, string[]>();
+  for (const ps of perfilesSucursal ?? []) {
+    const arr = sucursalIdsPorPerfil.get(ps.perfil_id) ?? [];
+    arr.push(ps.sucursal_id);
+    sucursalIdsPorPerfil.set(ps.perfil_id, arr);
+  }
+
+  const empleados = (perfiles ?? []).map((p) => ({
+    ...p,
+    sucursalIds: sucursalIdsPorPerfil.get(p.id) ?? [],
+  }));
+
   // maybeSingle y no single: la fila de integraciones_pdv recién existe
   // cuando alguien genera el primer código. api_key/api_secret NO se
   // seleccionan — el panel no los necesita para nada (viajan una sola vez,
@@ -128,7 +169,8 @@ export default async function ConfiguracionPage() {
     <div>
       <h1 className="mb-1 text-2xl font-semibold tracking-tight text-ink">Mi empresa</h1>
       <p className="mb-6 text-sm text-muted">
-        Datos de contacto, sucursales y bodegas de tu empresa. Para NIT, país o usuarios, pedile al superadmin.
+        Datos de contacto, sucursales, bodegas y equipo de tu empresa. Podés dar de alta operarios vos mismo; para el
+        NIT, el país, o un admin/gerente nuevo, pedile al superadmin.
       </p>
       <div className="space-y-6">
         <Seccion
@@ -143,6 +185,16 @@ export default async function ConfiguracionPage() {
           descripcion="Dónde se guarda y se cuenta el stock. Cada bodega pertenece a una sucursal; desactivar una la saca de los conteos nuevos sin tocar el histórico."
         >
           <SucursalesBodegas empresaId={perfil.empresaId} sucursales={sucursales ?? []} bodegas={bodegas ?? []} />
+        </Seccion>
+
+        {/* Va después de "Sucursales y bodegas" y no antes: dar de alta un
+            operario exige elegirle al menos una sucursal, así que primero
+            tiene que existir el lugar y recién después la persona. */}
+        <Seccion
+          titulo="Empleados"
+          descripcion="Quién trabaja en tu empresa. Podés crear operarios (los que hacen los conteos) y elegirles las sucursales; para un admin o gerente nuevo, o para dar de baja a alguien, pedile al superadmin."
+        >
+          <Empleados empleados={empleados} sucursales={sucursales ?? []} />
         </Seccion>
 
         <Seccion
