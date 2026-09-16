@@ -13,6 +13,7 @@ import {
   procesarEscaneo,
   deshacerUltimoEscaneo,
   establecerCantidad,
+  sumarUnidadesSueltas,
   generarUuid,
   generarCodigoInterno,
   dispositivoActual,
@@ -101,6 +102,10 @@ export function PantallaConteo({
   const [errorCantidadManual, setErrorCantidadManual] = useState<string | null>(null);
   const [editando, setEditando] = useState<string | null>(null);
   const [valorEdicion, setValorEdicion] = useState("");
+  // PICADO: el control inline que se abre sobre la tarjeta del producto
+  // recién escaneado para sumarle unidades sueltas (caja ya abierta).
+  const [picadoAbierto, setPicadoAbierto] = useState(false);
+  const [picadoValor, setPicadoValor] = useState("1");
   const [subiendoFoto, setSubiendoFoto] = useState(false);
   const [confirmandoCierre, setConfirmandoCierre] = useState(false);
   const [cerrando, setCerrando] = useState(false);
@@ -190,7 +195,7 @@ export function PantallaConteo({
   // cantidad, hay que dejarlo ahí: si reenfocamos igual, ningún otro
   // input de la pantalla deja escribir un solo carácter.
   function onBlurPrincipal() {
-    if (mostrarCantidadManual || cargandoProducto || editando !== null) return;
+    if (mostrarCantidadManual || cargandoProducto || editando !== null || picadoAbierto) return;
     reenfocar();
   }
 
@@ -200,6 +205,9 @@ export function PantallaConteo({
 
   async function ejecutarEscaneo(codigoRaw: string, delta = 1, saltarDebounce = false): Promise<ResultadoEscaneo> {
     setUltimoCodigo(codigoRaw);
+    // La tarjeta pasa a ser otro producto: el picado a medio tipear era
+    // para el anterior, se descarta.
+    setPicadoAbierto(false);
     const resultado: ResultadoEscaneo = await procesarEscaneo({
       conteoId: meta.conteoId,
       codigoRaw,
@@ -313,6 +321,28 @@ export function PantallaConteo({
     if (resultado.tipo !== "encontrado") {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
+    reenfocar();
+  }
+
+  // PICADO: suma unidades sueltas a la línea de la tarjeta. Es aditivo —
+  // cada confirmación suma lo tipeado a lo que ya había, no lo reemplaza
+  // (el operario carga lo que ve en el cajón en ese momento).
+  async function confirmarPicado(lineaId: string) {
+    const n = parseInt(picadoValor, 10);
+    if (!n || n <= 0) return;
+
+    await sumarUnidadesSueltas(lineaId, n);
+    // La tarjeta muestra una copia de la línea, no la de IndexedDB: hay
+    // que releerla para que el contador de sueltas se actualice al toque
+    // (local, sin esperar al servidor — igual que cualquier escaneo).
+    const actualizada = await db.lineas.get(lineaId);
+    if (actualizada) {
+      setFeedback((f) => (f?.tipo === "encontrado" ? { ...f, linea: actualizada } : f));
+    }
+    setPicadoAbierto(false);
+    setPicadoValor("1");
+    await refrescarLineas();
+    await refrescarPendientes();
     reenfocar();
   }
 
@@ -499,6 +529,12 @@ export function PantallaConteo({
     lineas.reduce((acc, l) => acc + l.cantidad, 0) +
     lineasDesc.reduce((acc, l) => acc + l.cantidad, 0);
 
+  // Aparte del total y NO sumado a él: son unidades distintas (envases vs.
+  // comprimidos sueltos). Mezclarlas en un solo número sería sumar cajas
+  // con pastillas — el servidor las guarda en columnas separadas por el
+  // mismo motivo.
+  const totalSueltas = lineas.reduce((acc, l) => acc + (l.unidadesSueltas ?? 0), 0);
+
   const sugerenciasCantidadManual =
     mostrarCantidadManual && codigoManual.trim().length >= 2
       ? lineas.filter((l) => l.nombre.toLowerCase().includes(codigoManual.trim().toLowerCase())).slice(0, 5)
@@ -582,6 +618,11 @@ export function PantallaConteo({
         <div className="mt-0.5 text-xs font-medium uppercase tracking-wide text-muted">
           unidades contadas
         </div>
+        {totalSueltas > 0 && (
+          <div className="mt-1 font-mono text-sm font-semibold tabular-nums text-brand">
+            + {totalSueltas.toLocaleString("es-BO")} sueltas (picado)
+          </div>
+        )}
       </div>
 
       {feedback && (
@@ -598,6 +639,61 @@ export function PantallaConteo({
               <p className="mt-1 font-mono text-3xl font-semibold tabular-nums text-found">
                 {feedback.linea.cantidad}
               </p>
+              {(feedback.linea.unidadesSueltas ?? 0) > 0 && (
+                <p className="font-mono text-sm font-semibold tabular-nums text-brand">
+                  + {feedback.linea.unidadesSueltas} sueltas
+                </p>
+              )}
+              {/* PICADO: la caja abierta de la que ya se vendió suelto.
+                  Va acá, en la tarjeta del producto recién escaneado, y no
+                  en otra pantalla: el operario lo tiene en la mano justo
+                  en ese momento. Suma unidades sueltas, que se cuentan
+                  aparte de los envases (nunca se mezclan). */}
+              {!picadoAbierto ? (
+                <button
+                  onClick={() => {
+                    setPicadoValor("1");
+                    setPicadoAbierto(true);
+                  }}
+                  className="mt-2.5 w-full rounded-md border border-brand/50 px-4 py-2.5 text-sm font-semibold uppercase tracking-wide text-brand transition-colors hover:bg-brand/10"
+                >
+                  Picado
+                </button>
+              ) : (
+                <div className="mt-2.5 flex items-center gap-2">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={picadoValor}
+                    onChange={(e) => setPicadoValor(e.target.value.replace(/\D/g, ""))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        confirmarPicado(feedback.linea.id);
+                      }
+                    }}
+                    autoFocus
+                    onFocus={(e) => e.target.select()}
+                    className="w-20 rounded-md border border-line bg-ink px-3 py-2.5 text-center font-mono text-base text-paper outline-none focus:border-brand"
+                  />
+                  <button
+                    onClick={() => confirmarPicado(feedback.linea.id)}
+                    disabled={!parseInt(picadoValor, 10)}
+                    className="flex-1 rounded-md bg-brand px-3 py-2.5 text-sm font-medium text-ink transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    Sumar sueltas
+                  </button>
+                  <button
+                    onClick={() => {
+                      setPicadoAbierto(false);
+                      reenfocar();
+                    }}
+                    className="shrink-0 px-1 text-sm text-muted"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
             </>
           )}
           {feedback.tipo === "desconocido_conocido" && (
@@ -872,12 +968,23 @@ export function PantallaConteo({
                   </button>
                 </div>
               ) : (
-                <button
-                  onClick={() => empezarEdicion(l.id, l.cantidad)}
-                  className="shrink-0 rounded-md bg-ink-3 px-3 py-1 font-mono text-lg font-semibold tabular-nums text-paper"
-                >
-                  {l.cantidad}
-                </button>
+                <div className="flex shrink-0 flex-col items-end">
+                  <button
+                    onClick={() => empezarEdicion(l.id, l.cantidad)}
+                    className="rounded-md bg-ink-3 px-3 py-1 font-mono text-lg font-semibold tabular-nums text-paper"
+                  >
+                    {l.cantidad}
+                  </button>
+                  {/* Los dos números a la vista de un vistazo: envases
+                      arriba, picado abajo. La edición inline sigue siendo
+                      solo de envases; las sueltas se cargan desde el botón
+                      PICADO de la tarjeta (o se deshacen con Deshacer). */}
+                  {(l.unidadesSueltas ?? 0) > 0 && (
+                    <span className="mt-0.5 font-mono text-[11px] font-semibold tabular-nums text-brand">
+                      + {l.unidadesSueltas} sueltas
+                    </span>
+                  )}
+                </div>
               )}
             </li>
           ))}
@@ -927,7 +1034,15 @@ export function PantallaConteo({
             <h2 className="mb-3 text-lg font-semibold text-paper">¿Cerrar este conteo?</h2>
             <p className="mb-2 text-sm text-muted">
               Quedan registradas <strong className="text-paper">{totalUnidades.toLocaleString("es-BO")}</strong>{" "}
-              unidades. Una vez cerrado no se puede volver a escanear acá.
+              unidades
+              {totalSueltas > 0 && (
+                <>
+                  {" "}
+                  y <strong className="text-paper">{totalSueltas.toLocaleString("es-BO")}</strong> unidades
+                  sueltas (picado)
+                </>
+              )}
+              . Una vez cerrado no se puede volver a escanear acá.
             </p>
             {lineasDesc.length > 0 && (
               <p className="mb-4 rounded-md border border-duplicate/30 bg-duplicate-bg px-3 py-2 text-sm text-duplicate">

@@ -432,6 +432,10 @@ export interface Database {
           producto_id: string | null;
           desconocido_id: string | null;
           cantidad: number;
+          /** Picado: unidades individuales sueltas. NO se suma a `cantidad`,
+           * que está en envases — ver
+           * 20260919000000_picado_unidades_sueltas.sql. */
+          unidades_sueltas: number;
           notas: string | null;
         };
         Insert: {
@@ -440,6 +444,7 @@ export interface Database {
           producto_id?: string | null;
           desconocido_id?: string | null;
           cantidad?: number;
+          unidades_sueltas?: number;
           notas?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["conteo_lineas"]["Insert"]>;

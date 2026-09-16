@@ -63,6 +63,11 @@ export async function sincronizarPendientes(conteoId: string): Promise<Resultado
             codigoRaw: e.codigoRaw,
             dispositivo: e.dispositivo,
             delta: e.delta,
+            // Picado (unidades sueltas) vs. envases — el servidor las
+            // acumula en columnas distintas. Las entradas viejas de la
+            // cola no traen el campo y valen false, que es lo que
+            // siempre significaron.
+            esSuelto: e.esSuelto ?? false,
           }))
         );
 

@@ -29,7 +29,19 @@ export interface LineaLocal {
   nombre: string;
   laboratorio: string | null;
   presentacion: string | null;
+  /** Envases cerrados contados (1 escaneo = 1 envase). */
   cantidad: number;
+  /** "Picado": unidades individuales sueltas de una caja ya abierta, que
+   * no tienen código de barras que escanear y se cargan con el botón
+   * PICADO (ver sumarUnidadesSueltas en lib/motor-escaneo.ts). Espejo
+   * local de conteo_lineas.unidades_sueltas. NO se suma a `cantidad`: son
+   * unidades distintas (comprimidos vs. cajas).
+   *
+   * Opcional a propósito: las líneas que ya estaban en IndexedDB antes de
+   * esta versión no tienen el campo (no hace falta migrar el store, no es
+   * un índice) y las que crea motor-desconocidos nacen sin picado. Leer
+   * siempre con `?? 0`. */
+  unidadesSueltas?: number;
   ultimoEscaneoAt: number; // epoch ms, para ordenar "por último escaneo"
 }
 
@@ -40,6 +52,11 @@ export interface EscaneoCola {
   codigoRaw: string;
   codigoNorm: string;
   delta: number;
+  /** El delta de esta entrada son unidades SUELTAS (picado), no envases —
+   * viaja como `es_suelto` a registrar_escaneos_batch. Opcional: las
+   * entradas encoladas por una versión anterior no lo tienen y valen
+   * false, que es lo que siempre significaron. */
+  esSuelto?: boolean;
   lote: string | null;
   vencimiento: string | null;
   dispositivo: string;

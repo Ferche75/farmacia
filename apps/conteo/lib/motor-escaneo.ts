@@ -131,6 +131,11 @@ export async function procesarEscaneo(params: ProcesarEscaneoParams): Promise<Re
       laboratorio: producto.laboratorio,
       presentacion: formatearPresentacion(producto),
       cantidad: nuevaCantidad,
+      // put() reemplaza la fila entera, así que el picado ya cargado hay
+      // que arrastrarlo explícitamente — si no, el próximo escaneo normal
+      // del mismo producto lo borraría de la vista (el servidor lo
+      // seguiría teniendo, que es lo peor de los dos mundos).
+      unidadesSueltas: existente?.unidadesSueltas ?? 0,
       ultimoEscaneoAt: ahora,
     };
     await db.lineas.put(nuevaLinea);
@@ -184,11 +189,23 @@ export async function deshacerUltimoEscaneo(conteoId: string): Promise<boolean> 
       });
     }
 
-    await db.lineas.put({
-      ...linea,
-      cantidad: linea.cantidad - ultimo.delta,
-      ultimoEscaneoAt: Date.now(),
-    });
+    // El evento deshecho puede ser un picado: en ese caso lo que hay que
+    // descontar es el contador de sueltas, no el de envases — el evento
+    // compensatorio de arriba conserva esSuelto, así que el servidor va a
+    // restarlo de unidades_sueltas y las dos puntas tienen que coincidir.
+    await db.lineas.put(
+      ultimo.esSuelto
+        ? {
+            ...linea,
+            unidadesSueltas: (linea.unidadesSueltas ?? 0) - ultimo.delta,
+            ultimoEscaneoAt: Date.now(),
+          }
+        : {
+            ...linea,
+            cantidad: linea.cantidad - ultimo.delta,
+            ultimoEscaneoAt: Date.now(),
+          }
+    );
 
     return true;
   });
@@ -225,5 +242,59 @@ export async function establecerCantidad(lineaId: string, nuevaCantidad: number)
     });
 
     await db.lineas.put({ ...linea, cantidad: nuevaCantidad, ultimoEscaneoAt: Date.now() });
+  });
+}
+
+/** "PICADO": suma unidades SUELTAS a una línea ya contada — los
+ * comprimidos/ml que quedaron flojos de una caja abierta y que, al no
+ * tener código de barras propio, no hay forma de escanear.
+ *
+ * Es ADITIVA, no un "fijar el total": el operario toca PICADO y tipea lo
+ * que está viendo en el cajón en ese momento; si vuelve a tocarlo, suma
+ * otra vez. Por eso no calcula ningún delta compensatorio como
+ * establecerCantidad — la cantidad YA es el delta.
+ *
+ * El evento se marca esSuelto: el servidor lo suma a
+ * conteo_lineas.unidades_sueltas y no a `cantidad` (que está en envases),
+ * vía el mismo trigger de siempre. Camino idéntico al de cualquier
+ * escaneo: cola Dexie local → motor-sync → registrar_escaneos_batch, así
+ * que funciona sin conexión igual que todo lo demás. */
+export async function sumarUnidadesSueltas(lineaId: string, cantidad: number): Promise<void> {
+  if (!Number.isFinite(cantidad) || cantidad === 0) return;
+
+  await db.transaction("rw", db.lineas, db.colaEscaneos, async () => {
+    const linea = await db.lineas.get(lineaId);
+    if (!linea) return;
+
+    // codigoRaw = el código real del producto, igual que en
+    // establecerCantidad: el servidor solo sabe encontrar/crear la línea
+    // normalizando un código de barras de verdad (registrar_escaneos_batch).
+    // El código es el de la CAJA; lo que dice "esto son sueltas, no una
+    // caja más" es esSuelto, no el código.
+    await db.colaEscaneos.put({
+      clientUuid: generarUuid(),
+      conteoId: linea.conteoId,
+      lineaId,
+      codigoRaw: linea.codigoNorm,
+      codigoNorm: linea.codigoNorm,
+      delta: cantidad,
+      esSuelto: true,
+      // Sin lote/vencimiento a propósito: un picado son unidades flojas
+      // sin fecha propia, y cerrar_conteo solo arma `lotes` con los
+      // escaneos que SÍ traen vencimiento.
+      lote: null,
+      vencimiento: null,
+      dispositivo: dispositivoActual(),
+      createdAt: Date.now(),
+      sincronizado: 0,
+      intentos: 0,
+      ultimoError: null,
+    });
+
+    await db.lineas.put({
+      ...linea,
+      unidadesSueltas: (linea.unidadesSueltas ?? 0) + cantidad,
+      ultimoEscaneoAt: Date.now(),
+    });
   });
 }

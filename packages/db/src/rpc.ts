@@ -37,6 +37,11 @@ export interface EscaneoInput {
   dispositivo?: string;
   /** Default 1 si no se manda. */
   delta?: number;
+  /** "Picado": este evento cuenta UNIDADES SUELTAS (comprimidos/ml que
+   * quedaron de una caja abierta), no envases cerrados. El servidor lo
+   * suma a conteo_lineas.unidades_sueltas en vez de a `cantidad` — son
+   * unidades distintas y no se mezclan. Default false. */
+  esSuelto?: boolean;
 }
 
 export interface ResultadoRegistrarEscaneos {
@@ -139,6 +144,7 @@ export async function registrarEscaneosBatch(
     codigo_raw: e.codigoRaw,
     dispositivo: e.dispositivo ?? null,
     delta: e.delta ?? 1,
+    es_suelto: e.esSuelto ?? false,
   }));
 
   const { data, error } = await supabase.rpc("registrar_escaneos_batch", {
