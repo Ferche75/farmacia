@@ -611,20 +611,6 @@ export function PantallaConteo({
         placeholder="Esperando lectura…"
       />
 
-      <div className="mb-5 text-center">
-        <div className="font-mono text-6xl font-semibold tabular-nums text-paper">
-          {totalUnidades.toLocaleString("es-BO")}
-        </div>
-        <div className="mt-0.5 text-xs font-medium uppercase tracking-wide text-muted">
-          unidades contadas
-        </div>
-        {totalSueltas > 0 && (
-          <div className="mt-1 font-mono text-sm font-semibold tabular-nums text-brand">
-            + {totalSueltas.toLocaleString("es-BO")} sueltas (picado)
-          </div>
-        )}
-      </div>
-
       {feedback && (
         <div className={`mb-5 rounded-lg border p-4 text-center ${feedbackEstilo}`}>
           {feedback.tipo === "encontrado" && (
