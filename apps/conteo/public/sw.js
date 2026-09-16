@@ -24,12 +24,19 @@ self.addEventListener("activate", (event) => {
 // mientras la app está en desarrollo activo.
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
+  // Extensiones del navegador (chrome-extension://, moz-extension://, etc.)
+  // pueden disparar fetches que este listener intercepta igual por estar en
+  // el scope de la página. cache.put() solo acepta http/https — con
+  // cualquier otro esquema tira "Request scheme 'x' is unsupported" y
+  // rompe la promesa sin capturar. No hay nada que cachear ahí, así que se
+  // ignoran antes de intentarlo.
+  if (!event.request.url.startsWith("http")) return;
 
   event.respondWith(
     fetch(event.request)
       .then((response) => {
         const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        caches.open(CACHE).then((cache) => cache.put(event.request, copy).catch(() => {}));
         return response;
       })
       .catch(() => caches.match(event.request))
