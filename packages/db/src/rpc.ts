@@ -545,6 +545,9 @@ export interface NuevoProductoManual {
    * restringido a admin/gerente/superadmin). */
   laboratorio?: string | null;
   principio_activo?: string | null;
+  /** Ver 20260921000000: recién ahí el RPC empezó a leer esta key del
+   * jsonb y a escribir productos.accion_terapeutica con ella. */
+  accion_terapeutica?: string | null;
   concentracion?: string | null;
   contenido?: number | null;
   unidad?: string | null;

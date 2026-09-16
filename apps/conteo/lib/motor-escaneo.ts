@@ -163,17 +163,33 @@ export async function procesarEscaneo(params: ProcesarEscaneoParams): Promise<Re
 }
 
 /** Deshace el último escaneo del conteo (global, no por producto — "el
- * último" tal cual pide el spec). Si todavía no se sincronizó, se borra
- * de la cola sin más. Si ya se sincronizó, se registra un evento
- * compensatorio (delta negativo) — nunca se edita/borra un escaneo ya
- * mandado al servidor, mismo principio de inmutabilidad que CONTEXTO.md
- * regla 5 exige del lado del servidor. */
+ * último" tal cual pide el spec), y repetido sigue yendo hacia atrás en la
+ * historia (como Ctrl+Z), no solo alterna el mismo evento.
+ *
+ * Si todavía no se sincronizó, se borra de la cola sin más. Si ya se
+ * sincronizó, se registra un evento compensatorio (delta negativo) —
+ * nunca se edita/borra un escaneo ya mandado al servidor, mismo principio
+ * de inmutabilidad que CONTEXTO.md regla 5 exige del lado del servidor.
+ *
+ * El evento compensatorio queda en la misma cola (colaEscaneos), marcado
+ * con `compensaClientUuid` apuntando al que anula. Sin esa marca, un
+ * segundo "Deshacer" — hecho antes de que el primer compensatorio
+ * sincronice — lo encontraría a ÉL como "lo más reciente" y lo borraría
+ * (sincronizado: 0 todavía), cancelando el primer deshacer en vez de
+ * deshacer el anterior. Por eso "lo próximo a deshacer" se elige entre
+ * los eventos ORIGINALES (compensaClientUuid ausente) que todavía no
+ * tengan su propio compensatorio ya creado. */
 export async function deshacerUltimoEscaneo(conteoId: string): Promise<boolean> {
   return db.transaction("rw", db.lineas, db.colaEscaneos, async () => {
     const todos = await db.colaEscaneos.where("conteoId").equals(conteoId).toArray();
-    if (todos.length === 0) return false;
 
-    const ultimo = todos.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
+    const yaCompensados = new Set(
+      todos.filter((e) => e.compensaClientUuid).map((e) => e.compensaClientUuid)
+    );
+    const pendientes = todos.filter((e) => !e.compensaClientUuid && !yaCompensados.has(e.clientUuid));
+    if (pendientes.length === 0) return false;
+
+    const ultimo = pendientes.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
     const linea = await db.lineas.get(ultimo.lineaId);
     if (!linea) return false;
 
@@ -184,6 +200,7 @@ export async function deshacerUltimoEscaneo(conteoId: string): Promise<boolean> 
         ...ultimo,
         clientUuid: generarUuid(),
         delta: -ultimo.delta,
+        compensaClientUuid: ultimo.clientUuid,
         sincronizado: 0,
         createdAt: Date.now(),
       });

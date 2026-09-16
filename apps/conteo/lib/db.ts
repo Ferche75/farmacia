@@ -57,6 +57,14 @@ export interface EscaneoCola {
    * entradas encoladas por una versión anterior no lo tienen y valen
    * false, que es lo que siempre significaron. */
   esSuelto?: boolean;
+  /** Solo presente en un evento COMPENSATORIO (creado por deshacerUltimoEscaneo
+   * sobre un evento ya sincronizado): el clientUuid del evento que este
+   * anula. Sirve para que un segundo "Deshacer" no vuelva a elegir el
+   * compensatorio recién creado como "lo último" — sin esto, dos clicks
+   * seguidos (antes de que el primer compensatorio sincronice) se anulan
+   * entre sí en vez de seguir yendo hacia atrás. Ausente/null en un evento
+   * normal (escaneo, picado, edición manual). */
+  compensaClientUuid?: string | null;
   lote: string | null;
   vencimiento: string | null;
   dispositivo: string;

@@ -157,6 +157,8 @@ export function PantallaConteo({
     concentracionUnidad: "mg",
     contenido: "",
     unidad: "",
+    principioActivo: "",
+    accionTerapeutica: "",
   });
   const [guardandoProducto, setGuardandoProducto] = useState(false);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
@@ -418,6 +420,8 @@ export function PantallaConteo({
         concentracionUnidad: "mg",
         contenido: "",
         unidad: "",
+        principioActivo: "",
+        accionTerapeutica: "",
       });
       setErrorCarga(null);
       setCargandoProducto(true);
@@ -443,6 +447,8 @@ export function PantallaConteo({
       const nuevoProducto: NuevoProductoManual = {
         nombre: formCarga.nombre.trim(),
         laboratorio: formCarga.laboratorio || null,
+        principio_activo: formCarga.principioActivo.trim() || null,
+        accion_terapeutica: formCarga.accionTerapeutica.trim() || null,
         concentracion,
         // El input filtra a mano (ver limpiarNumeroDecimal), así que puede
         // quedar un "." suelto mientras se tipea — Number(".") es NaN.
@@ -834,6 +840,18 @@ export function PantallaConteo({
                 value={formCarga.laboratorio}
                 onChange={(e) => setFormCarga({ ...formCarga, laboratorio: e.target.value })}
                 placeholder="Laboratorio"
+              />
+              <input
+                className={CAMPO}
+                value={formCarga.principioActivo}
+                onChange={(e) => setFormCarga({ ...formCarga, principioActivo: e.target.value })}
+                placeholder="Principio activo"
+              />
+              <input
+                className={CAMPO}
+                value={formCarga.accionTerapeutica}
+                onChange={(e) => setFormCarga({ ...formCarga, accionTerapeutica: e.target.value })}
+                placeholder="Acción terapéutica"
               />
               <input
                 className={CAMPO}
