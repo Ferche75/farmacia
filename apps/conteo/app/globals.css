@@ -27,6 +27,23 @@
   --color-duplicate: #f2a93c;
   --color-duplicate-bg: #3a2a0c;
 
+  /* ── Tema CLARO ────────────────────────────────────────────────
+   * Convive con el oscuro de arriba a propósito: por ahora SOLO lo
+   * usan la pantalla de conteo, la barra de navegación de abajo y las
+   * pantallas nuevas (Productos / Configuración). La selección de
+   * conteo y el login siguen en oscuro — rehacer toda la app es otra
+   * tarea. --color-brand se comparte entre los dos temas (el verde
+   * del diseño es prácticamente el mismo). */
+  --color-surface: #ffffff;
+  --color-surface-2: #f2f7f4;
+  --color-surface-mint: #e6f4ee;
+  --color-surface-soft: #eff2f0;
+  --color-surface-danger: #fdeaea;
+  --color-line-light: #e3ebe7;
+  --color-strong: #16201c;
+  --color-soft: #77867f;
+  --color-danger: #d94a4a;
+
   --radius-sm: 0.5rem;
   --radius-md: 0.875rem;
   --radius-lg: 1.25rem;

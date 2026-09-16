@@ -2,6 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ArrowDownUp,
+  Calendar,
+  CircleCheckBig,
+  EllipsisVertical,
+  Package,
+  Pencil,
+  RefreshCw,
+  ScanBarcode,
+  Search,
+  Trash2,
+} from "lucide-react";
+import {
   createBrowserClient,
   cerrarConteo,
   crearProductoYContar,
@@ -54,6 +66,12 @@ import { TarjetaSugerencia } from "./tarjeta-sugerencia";
 // timeout ni se espera.
 const IDLE_MS = 80;
 
+// Clase compartida de los inputs del formulario de carga manual — son
+// muchos y todos iguales; tenerla suelta evita repetir la cadena entera
+// ocho veces y que se desincronicen.
+const CAMPO =
+  "w-full rounded-lg border border-line-light bg-surface px-3 py-2 text-sm text-strong outline-none focus:border-brand";
+
 type Feedback =
   | { tipo: "encontrado"; linea: LineaLocal; unidadesPorCodigo: number }
   | { tipo: "desconocido_conocido"; linea: LineaDesconocidoLocal; foto: Blob | null }
@@ -65,6 +83,23 @@ type Feedback =
 function urlDeFoto(blob: Blob | null): string | null {
   if (!blob) return null;
   return URL.createObjectURL(blob);
+}
+
+/** Cuadradito con ícono de caja donde el diseño muestra la foto del
+ * producto. No hay foto real que poner: `productos` no tiene ninguna
+ * columna de imagen (ni imagen_url ni foto_url), así que esto es un
+ * placeholder a propósito, no una imagen rota. */
+function Miniatura({ chico = false }: { chico?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`flex shrink-0 items-center justify-center rounded-lg bg-surface-soft text-soft ${
+        chico ? "h-11 w-11" : "h-14 w-14"
+      }`}
+    >
+      <Package size={chico ? 18 : 22} strokeWidth={1.8} />
+    </span>
+  );
 }
 
 // Los campos numéricos van como type="text" + inputMode (en varios
@@ -96,10 +131,6 @@ export function PantallaConteo({
   const [lineasDesc, setLineasDesc] = useState<LineaDesconocidoLocal[]>([]);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [pendientes, setPendientes] = useState(0);
-  const [mostrarCantidadManual, setMostrarCantidadManual] = useState(false);
-  const [codigoManual, setCodigoManual] = useState("");
-  const [cantidadManual, setCantidadManual] = useState("1");
-  const [errorCantidadManual, setErrorCantidadManual] = useState<string | null>(null);
   const [editando, setEditando] = useState<string | null>(null);
   const [valorEdicion, setValorEdicion] = useState("");
   // PICADO: el control inline que se abre sobre la tarjeta del producto
@@ -133,11 +164,6 @@ export function PantallaConteo({
 
   const [fallados, setFallados] = useState<ItemFallado[]>([]);
   const [reintentando, setReintentando] = useState(false);
-
-  // Último código que pasó por el input principal (escaneado o tipeado) —
-  // para precargarlo en "Cantidad manual" y no obligar a escanear/tipear
-  // el mismo código dos veces.
-  const [ultimoCodigo, setUltimoCodigo] = useState("");
 
   const refrescarLineas = useCallback(async () => {
     const todas = await db.lineas.where("conteoId").equals(meta.conteoId).toArray();
@@ -190,12 +216,12 @@ export function PantallaConteo({
 
   // El input principal se reenfoca solo cuando pierde el foco por
   // accidente (para que el lector físico no se quede "mudo" si alguien
-  // clickea afuera) — pero si lo que pasó fue que el foco se fue a
-  // "Cantidad manual", al formulario de cargar producto o a editar una
-  // cantidad, hay que dejarlo ahí: si reenfocamos igual, ningún otro
-  // input de la pantalla deja escribir un solo carácter.
+  // clickea afuera) — pero si lo que pasó fue que el foco se fue al
+  // formulario de cargar producto, a editar una cantidad o al control de
+  // PICADO, hay que dejarlo ahí: si reenfocamos igual, ningún otro input
+  // de la pantalla deja escribir un solo carácter.
   function onBlurPrincipal() {
-    if (mostrarCantidadManual || cargandoProducto || editando !== null || picadoAbierto) return;
+    if (cargandoProducto || editando !== null || picadoAbierto) return;
     reenfocar();
   }
 
@@ -204,7 +230,6 @@ export function PantallaConteo({
   }, []);
 
   async function ejecutarEscaneo(codigoRaw: string, delta = 1, saltarDebounce = false): Promise<ResultadoEscaneo> {
-    setUltimoCodigo(codigoRaw);
     // La tarjeta pasa a ser otro producto: el picado a medio tipear era
     // para el anterior, se descarta.
     setPicadoAbierto(false);
@@ -288,38 +313,22 @@ export function PantallaConteo({
     timeoutRef.current = setTimeout(procesarValorDelInput, IDLE_MS);
   }
 
+  // "Confirmar y seguir" NO escribe nada: el escaneo ya se contó en el
+  // momento en que se leyó el código (esta pantalla es y sigue siendo
+  // scan-driven, sin paso de confirmación). Es solo "ya miré esto, dame
+  // el próximo": limpia la tarjeta y devuelve el foco al lector.
+  function confirmarYSeguir() {
+    setFeedback(null);
+    setPicadoAbierto(false);
+    setEditando(null);
+    reenfocar();
+  }
+
   async function onDeshacer() {
     const ok = await deshacerUltimoEscaneo(meta.conteoId);
     if (ok) {
       await refrescarLineas();
       await refrescarPendientes();
-    }
-    reenfocar();
-  }
-
-  async function onCantidadManualSubmit() {
-    setErrorCantidadManual(null);
-
-    if (!codigoManual.trim()) {
-      setErrorCantidadManual("Escribí un código de barras.");
-      return;
-    }
-    const n = parseInt(cantidadManual, 10);
-    if (!n || n <= 0) {
-      setErrorCantidadManual("La cantidad tiene que ser mayor a 0.");
-      return;
-    }
-
-    const resultado = await ejecutarEscaneo(codigoManual.trim(), n, true);
-    setCodigoManual("");
-    setCantidadManual("1");
-    setMostrarCantidadManual(false);
-    // El resultado (encontrado, no encontrado, código inválido…) ya se
-    // muestra en el cartel de arriba de la pantalla — pero si el panel
-    // estaba abierto acá abajo, sin este scroll ese cartel puede quedar
-    // fuera de la vista y parecer que "no pasó nada" al tocar Agregar.
-    if (resultado.tipo !== "encontrado") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
     }
     reenfocar();
   }
@@ -356,6 +365,12 @@ export function PantallaConteo({
     if (!isNaN(n) && n >= 0) {
       await establecerCantidad(lineaId, n);
       await refrescarLineas();
+      // La tarjeta de feedback muestra una copia de la línea: si se editó
+      // desde ahí, hay que releerla para que el número no quede viejo.
+      const actualizada = await db.lineas.get(lineaId);
+      if (actualizada) {
+        setFeedback((f) => (f?.tipo === "encontrado" && f.linea.id === lineaId ? { ...f, linea: actualizada } : f));
+      }
       await refrescarPendientes();
     }
     setEditando(null);
@@ -535,49 +550,60 @@ export function PantallaConteo({
   // mismo motivo.
   const totalSueltas = lineas.reduce((acc, l) => acc + (l.unidadesSueltas ?? 0), 0);
 
-  const sugerenciasCantidadManual =
-    mostrarCantidadManual && codigoManual.trim().length >= 2
-      ? lineas.filter((l) => l.nombre.toLowerCase().includes(codigoManual.trim().toLowerCase())).slice(0, 5)
-      : [];
-
   const feedbackEstilo =
     feedback?.tipo === "encontrado" || feedback?.tipo === "desconocido_conocido"
-      ? "border-found/30 bg-found-bg"
+      ? "bg-surface-mint"
       : feedback?.tipo === "duplicado"
-        ? "border-duplicate/30 bg-duplicate-bg"
-        : "border-notfound/30 bg-notfound-bg";
+        ? "bg-duplicate/10"
+        : "bg-surface-danger";
 
   return (
-    <div className="flex flex-1 flex-col p-4">
-      <div className="mb-4 flex items-center justify-between text-xs">
-        <span className="font-medium text-paper">{meta.nombre}</span>
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1.5">
+    <div className="flex flex-1 flex-col bg-surface-2 p-4 text-strong">
+      <header className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold leading-tight tracking-tight">Conteo de inventario</h1>
+          {/* No hay campo de fecha propio en el conteo local: meta.nombre
+              es lo que identifica al conteo y por default ya viene con la
+              fecha del día ("Conteo 16/9/2026"), así que es lo que va acá
+              en vez de inventar un dato nuevo. */}
+          <p className="mt-0.5 flex items-center gap-1.5 text-xs text-soft">
+            <Calendar size={13} className="shrink-0" aria-hidden />
+            <span className="truncate">{meta.nombre}</span>
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span
+            className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[0.6875rem] font-medium ${
+              pendientes > 0 ? "bg-duplicate/15 text-duplicate" : "bg-surface-mint text-brand"
+            }`}
+          >
             <span
-              className={`h-1.5 w-1.5 rounded-full ${pendientes > 0 ? "bg-duplicate" : "bg-found"}`}
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${pendientes > 0 ? "bg-duplicate" : "bg-brand"}`}
             />
-            <span className={pendientes > 0 ? "text-duplicate" : "text-muted"}>
-              {pendientes > 0 ? `${pendientes} sin sincronizar` : "sincronizado"}
-            </span>
+            {pendientes > 0 ? `${pendientes} sin sincronizar` : "Sincronizado"}
           </span>
-          <button onClick={onCerrarConteo} className="text-muted transition-colors hover:text-paper">
+          <button
+            onClick={onCerrarConteo}
+            className="flex items-center gap-1 rounded-full bg-surface px-2.5 py-1 text-[0.6875rem] font-medium text-strong ring-1 ring-line-light transition-colors hover:bg-surface-soft"
+          >
+            <RefreshCw size={12} aria-hidden />
             Cambiar
           </button>
         </div>
-      </div>
+      </header>
 
       {fallados.length > 0 && (
-        <div className="mb-4 rounded-lg border border-notfound bg-notfound-bg p-3.5">
-          <p className="font-medium text-notfound">
+        <div className="mb-4 rounded-xl bg-surface-danger p-3.5">
+          <p className="text-sm font-semibold text-danger">
             {fallados.length === 1
               ? "1 escaneo no se pudo guardar en el servidor."
               : `${fallados.length} escaneos no se pudieron guardar en el servidor.`}
           </p>
-          <p className="mt-1 text-xs text-notfound/80">{fallados[0].ultimoError}</p>
+          <p className="mt-1 text-xs text-danger/80">{fallados[0].ultimoError}</p>
           <button
             onClick={reintentarSync}
             disabled={reintentando}
-            className="mt-2.5 rounded-md border border-notfound/50 px-3 py-1.5 text-sm font-medium text-notfound transition-colors hover:bg-notfound/10 disabled:opacity-50"
+            className="mt-2.5 rounded-full bg-danger px-3.5 py-1.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {reintentando ? "Reintentando…" : "Reintentar ahora"}
           </button>
@@ -596,57 +622,124 @@ export function PantallaConteo({
         className="hidden"
       />
 
-      <input
-        ref={inputRef}
-        type="text"
-        inputMode="none"
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        spellCheck={false}
-        onKeyDown={onKeyDown}
-        onChange={onChangeInput}
-        onBlur={onBlurPrincipal}
-        className="mb-5 w-full rounded-md border border-line bg-ink-2 px-4 py-3 text-center font-mono text-sm text-muted outline-none focus:border-brand"
-        placeholder="Esperando lectura…"
-      />
+      <div className="mb-4 flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Search
+            size={17}
+            aria-hidden
+            className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-soft"
+          />
+          <input
+            ref={inputRef}
+            type="text"
+            // inputMode="none" a propósito: el input es para el lector
+            // físico, no para el teclado en pantalla (que taparía media
+            // pantalla en cada escaneo).
+            inputMode="none"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            onKeyDown={onKeyDown}
+            onChange={onChangeInput}
+            onBlur={onBlurPrincipal}
+            className="w-full rounded-full border border-line-light bg-surface py-3 pl-10 pr-4 font-mono text-sm text-strong outline-none placeholder:font-sans placeholder:text-soft focus:border-brand"
+            placeholder="Escaneá o buscá un producto…"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={reenfocar}
+          aria-label="Volver a enfocar el lector"
+          className="flex h-[2.875rem] w-[2.875rem] shrink-0 items-center justify-center rounded-xl border border-line-light bg-surface text-strong transition-colors hover:bg-surface-soft"
+        >
+          <ScanBarcode size={19} aria-hidden />
+        </button>
+      </div>
 
       {feedback && (
-        <div className={`mb-5 rounded-lg border p-4 text-center ${feedbackEstilo}`}>
+        <div className={`mb-3 rounded-2xl p-3.5 ${feedbackEstilo}`}>
           {feedback.tipo === "encontrado" && (
             <>
-              <p className="text-lg font-semibold text-paper">{feedback.linea.nombre}</p>
-              {feedback.linea.presentacion && (
-                <p className="text-sm text-muted">{feedback.linea.presentacion}</p>
-              )}
-              {feedback.unidadesPorCodigo > 1 && (
-                <p className="text-xs font-medium text-brand">×{feedback.unidadesPorCodigo} por caja</p>
-              )}
-              <p className="mt-1 font-mono text-3xl font-semibold tabular-nums text-found">
-                {feedback.linea.cantidad}
-              </p>
-              {(feedback.linea.unidadesSueltas ?? 0) > 0 && (
-                <p className="font-mono text-sm font-semibold tabular-nums text-brand">
-                  + {feedback.linea.unidadesSueltas} sueltas
-                </p>
-              )}
-              {/* PICADO: la caja abierta de la que ya se vendió suelto.
-                  Va acá, en la tarjeta del producto recién escaneado, y no
-                  en otra pantalla: el operario lo tiene en la mano justo
-                  en ese momento. Suma unidades sueltas, que se cuentan
-                  aparte de los envases (nunca se mezclan). */}
-              {!picadoAbierto ? (
-                <button
-                  onClick={() => {
-                    setPicadoValor("1");
-                    setPicadoAbierto(true);
-                  }}
-                  className="mt-2.5 w-full rounded-md border border-brand/50 px-4 py-2.5 text-sm font-semibold uppercase tracking-wide text-brand transition-colors hover:bg-brand/10"
-                >
-                  Picado
-                </button>
-              ) : (
-                <div className="mt-2.5 flex items-center gap-2">
+              <div className="flex gap-3">
+                <Miniatura />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[0.9375rem] font-bold leading-snug text-strong">{feedback.linea.nombre}</p>
+                  {feedback.linea.presentacion && (
+                    <p className="mt-0.5 text-xs text-soft">{feedback.linea.presentacion}</p>
+                  )}
+                  <p className="mt-0.5 font-mono text-[0.6875rem] text-soft">{feedback.linea.codigoNorm}</p>
+                  {feedback.unidadesPorCodigo > 1 && (
+                    <p className="mt-0.5 text-[0.6875rem] font-semibold text-brand">
+                      ×{feedback.unidadesPorCodigo} por caja
+                    </p>
+                  )}
+                  {/* PICADO: la caja abierta de la que ya se vendió suelto.
+                      Va acá, en la tarjeta del producto recién escaneado, y no
+                      en otra pantalla: el operario lo tiene en la mano justo
+                      en ese momento. Suma unidades sueltas, que se cuentan
+                      aparte de los envases (nunca se mezclan). */}
+                  {!picadoAbierto && (
+                    <button
+                      onClick={() => {
+                        setPicadoValor("1");
+                        setPicadoAbierto(true);
+                      }}
+                      className="mt-2 rounded-full bg-brand px-3 py-1 text-[0.6875rem] font-bold uppercase tracking-wide text-white transition-opacity hover:opacity-90"
+                    >
+                      Picado
+                    </button>
+                  )}
+                </div>
+
+                <div className="w-[5.75rem] shrink-0 rounded-xl bg-surface px-2 py-2.5 text-center">
+                  <p className="text-[0.625rem] font-semibold uppercase tracking-wide text-soft">Cantidad</p>
+                  {/* El id de edición va prefijado: la misma línea está
+                      también en la lista de abajo y, sin prefijo, tocar
+                      "Editar" acá abriría DOS inputs a la vez (los dos con
+                      autoFocus) peleándose el foco. Guardar usa el id real. */}
+                  {editando === `tarjeta:${feedback.linea.id}` ? (
+                    <div className="mt-1 space-y-1.5">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={valorEdicion}
+                        onChange={(e) => setValorEdicion(e.target.value.replace(/\D/g, ""))}
+                        className="w-full rounded-md border border-line-light bg-surface px-1.5 py-1 text-center font-mono text-base text-strong outline-none focus:border-brand"
+                        autoFocus
+                        onFocus={(e) => e.target.select()}
+                      />
+                      <button
+                        onClick={() => guardarEdicionProducto(feedback.linea.id)}
+                        className="w-full rounded-md bg-brand py-1 text-xs font-bold text-white"
+                      >
+                        OK
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="font-mono text-3xl font-bold leading-tight tabular-nums text-strong">
+                        {feedback.linea.cantidad}
+                      </p>
+                      {(feedback.linea.unidadesSueltas ?? 0) > 0 && (
+                        <p className="font-mono text-[0.6875rem] font-semibold tabular-nums text-brand">
+                          {feedback.linea.unidadesSueltas} sueltas
+                        </p>
+                      )}
+                      <button
+                        onClick={() => empezarEdicion(`tarjeta:${feedback.linea.id}`, feedback.linea.cantidad)}
+                        className="mt-1 inline-flex items-center gap-1 text-[0.6875rem] font-medium text-soft transition-colors hover:text-strong"
+                      >
+                        <Pencil size={11} aria-hidden />
+                        Editar
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {picadoAbierto && (
+                <div className="mt-3 flex items-center gap-2">
                   <input
                     type="text"
                     inputMode="numeric"
@@ -660,12 +753,12 @@ export function PantallaConteo({
                     }}
                     autoFocus
                     onFocus={(e) => e.target.select()}
-                    className="w-20 rounded-md border border-line bg-ink px-3 py-2.5 text-center font-mono text-base text-paper outline-none focus:border-brand"
+                    className="w-20 shrink-0 rounded-lg border border-line-light bg-surface px-3 py-2.5 text-center font-mono text-base text-strong outline-none focus:border-brand"
                   />
                   <button
                     onClick={() => confirmarPicado(feedback.linea.id)}
                     disabled={!parseInt(picadoValor, 10)}
-                    className="flex-1 rounded-md bg-brand px-3 py-2.5 text-sm font-medium text-ink transition-opacity hover:opacity-90 disabled:opacity-50"
+                    className="flex-1 rounded-lg bg-brand px-3 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                   >
                     Sumar sueltas
                   </button>
@@ -674,7 +767,7 @@ export function PantallaConteo({
                       setPicadoAbierto(false);
                       reenfocar();
                     }}
-                    className="shrink-0 px-1 text-sm text-muted"
+                    className="shrink-0 px-1 text-sm text-soft"
                   >
                     Cancelar
                   </button>
@@ -683,27 +776,35 @@ export function PantallaConteo({
             </>
           )}
           {feedback.tipo === "desconocido_conocido" && (
-            <>
-              <p className="text-sm text-muted">Sin identificar todavía</p>
-              {feedback.foto && (
+            <div className="flex items-center gap-3">
+              {feedback.foto ? (
                 // eslint-disable-next-line @next/next/no-img-element -- foto local (blob URL), no un asset del sitio
                 <img
                   src={urlDeFoto(feedback.foto) ?? undefined}
                   alt=""
-                  className="mx-auto my-2 h-24 rounded-md object-cover"
+                  className="h-14 w-14 shrink-0 rounded-lg object-cover"
                 />
+              ) : (
+                <Miniatura />
               )}
-              <p className="mt-1 font-mono text-3xl font-semibold tabular-nums text-found">
-                {feedback.linea.cantidad}
-              </p>
-            </>
+              <div className="min-w-0 flex-1">
+                <p className="text-[0.9375rem] font-bold leading-snug text-strong">Sin identificar todavía</p>
+                <p className="mt-0.5 font-mono text-[0.6875rem] text-soft">{feedback.linea.codigoNorm}</p>
+              </div>
+              <div className="w-[5.75rem] shrink-0 rounded-xl bg-surface px-2 py-2.5 text-center">
+                <p className="text-[0.625rem] font-semibold uppercase tracking-wide text-soft">Cantidad</p>
+                <p className="font-mono text-3xl font-bold leading-tight tabular-nums text-strong">
+                  {feedback.linea.cantidad}
+                </p>
+              </div>
+            </div>
           )}
           {feedback.tipo === "duplicado" && (
-            <p className="font-medium text-duplicate">Duplicado — {feedback.codigoRaw}</p>
+            <p className="text-sm font-semibold text-duplicate">Duplicado — {feedback.codigoRaw}</p>
           )}
           {feedback.tipo === "no_encontrado" && !cargandoProducto && (
-            <>
-              <p className="mb-3 font-medium text-notfound">
+            <div className="text-center">
+              <p className="mb-3 text-sm font-semibold text-danger">
                 {feedback.origenInterno
                   ? "Código de barras interno asignado"
                   : `No encontrado — ${feedback.codigoRaw}`}
@@ -711,15 +812,15 @@ export function PantallaConteo({
               <button
                 onClick={() => onClickTomarFoto(feedback.codigoRaw, feedback.codigoNorm)}
                 disabled={subiendoFoto}
-                className="rounded-md bg-notfound px-5 py-3 text-base font-medium text-ink transition-opacity hover:opacity-90 disabled:opacity-50"
+                className="rounded-full bg-danger px-5 py-3 text-base font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {subiendoFoto ? "Procesando…" : "Tomar foto"}
               </button>
-            </>
+            </div>
           )}
           {feedback.tipo === "no_encontrado" && cargandoProducto && (
             <div className="space-y-2 text-left">
-              <p className="mb-1 text-center font-medium text-notfound">
+              <p className="mb-1 text-center text-sm font-semibold text-danger">
                 {feedback.origenInterno
                   ? `Código de barras interno: ${feedback.codigoRaw}`
                   : feedback.codigoRaw}
@@ -729,32 +830,32 @@ export function PantallaConteo({
                 <img
                   src={urlDeFoto(fotoCapturada) ?? undefined}
                   alt=""
-                  className="mx-auto mb-2 h-32 rounded-md object-cover"
+                  className="mx-auto mb-2 h-32 rounded-lg object-cover"
                 />
               )}
-              {errorCarga && <p className="text-sm text-notfound">{errorCarga}</p>}
+              {errorCarga && <p className="text-sm text-danger">{errorCarga}</p>}
               <input
-                className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                className={CAMPO}
                 value={formCarga.nombre}
                 onChange={(e) => setFormCarga({ ...formCarga, nombre: e.target.value })}
                 placeholder="Nombre *"
                 autoFocus
               />
               <input
-                className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                className={CAMPO}
                 value={formCarga.laboratorio}
                 onChange={(e) => setFormCarga({ ...formCarga, laboratorio: e.target.value })}
                 placeholder="Laboratorio"
               />
               <input
-                className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                className={CAMPO}
                 value={formCarga.sku}
                 onChange={(e) => setFormCarga({ ...formCarga, sku: e.target.value })}
                 placeholder="SKU / código de proveedor (opcional)"
               />
               <div className="grid grid-cols-2 gap-2">
                 <input
-                  className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                  className={CAMPO}
                   type="text"
                   inputMode="decimal"
                   value={formCarga.concentracionValor}
@@ -764,7 +865,7 @@ export function PantallaConteo({
                   placeholder="Concentración"
                 />
                 <select
-                  className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                  className={CAMPO}
                   value={formCarga.concentracionUnidad}
                   onChange={(e) => setFormCarga({ ...formCarga, concentracionUnidad: e.target.value })}
                 >
@@ -777,7 +878,7 @@ export function PantallaConteo({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <input
-                  className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                  className={CAMPO}
                   type="text"
                   inputMode="decimal"
                   value={formCarga.contenido}
@@ -785,7 +886,7 @@ export function PantallaConteo({
                   placeholder="Contenido"
                 />
                 <select
-                  className="w-full rounded-md border border-line bg-ink px-3 py-2 text-sm text-paper outline-none focus:border-brand"
+                  className={CAMPO}
                   value={formCarga.unidad}
                   onChange={(e) => setFormCarga({ ...formCarga, unidad: e.target.value })}
                 >
@@ -801,7 +902,7 @@ export function PantallaConteo({
                 <button
                   onClick={guardarProductoCargado}
                   disabled={guardandoProducto || !formCarga.nombre.trim()}
-                  className="flex-1 rounded-md bg-notfound px-3 py-2 text-sm font-medium text-ink disabled:opacity-50"
+                  className="flex-1 rounded-full bg-danger px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {guardandoProducto ? "Guardando…" : "Guardar y contar"}
                 </button>
@@ -810,7 +911,7 @@ export function PantallaConteo({
                     setCargandoProducto(false);
                     setFotoCapturada(null);
                   }}
-                  className="text-sm text-muted"
+                  className="text-sm text-soft"
                 >
                   Volver
                 </button>
@@ -818,126 +919,86 @@ export function PantallaConteo({
             </div>
           )}
           {feedback.tipo === "codigo_invalido" && (
-            <p className="font-medium text-notfound">Código inválido — {feedback.codigoRaw}</p>
+            <p className="text-sm font-semibold text-danger">Código inválido — {feedback.codigoRaw}</p>
           )}
         </div>
       )}
 
-      <div className="mb-5 flex gap-2.5">
+      <div className="mb-3 flex gap-2.5">
         <button
           onClick={onDeshacer}
-          className="flex-1 rounded-md border border-line px-4 py-3 text-sm font-medium text-paper transition-colors hover:border-muted"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-surface-danger px-4 py-3 text-sm font-semibold text-danger transition-opacity hover:opacity-90"
         >
+          <Trash2 size={16} aria-hidden />
           Deshacer
         </button>
         <button
-          onClick={() => {
-            setErrorCantidadManual(null);
-            setMostrarCantidadManual((v) => {
-              const abriendo = !v;
-              // Precargado con el último código escaneado/tipeado — no
-              // tiene sentido pedirlo de nuevo si ya se leyó hace un
-              // instante, solo la cantidad suele cambiar.
-              if (abriendo) setCodigoManual(ultimoCodigo);
-              return abriendo;
-            });
-          }}
-          className="flex-1 rounded-md border border-line px-4 py-3 text-sm font-medium text-paper transition-colors hover:border-muted"
+          onClick={onClickSinCodigo}
+          disabled={subiendoFoto || cargandoProducto}
+          aria-label="Producto sin código de barras"
+          className="flex flex-1 items-center justify-center gap-1.5 rounded-full bg-surface-soft px-3 py-3 text-center text-[0.8125rem] font-semibold leading-tight text-strong transition-colors hover:bg-line-light disabled:opacity-50"
         >
-          Cantidad manual
+          <ScanBarcode size={16} className="shrink-0" aria-hidden />
+          Sin código de barras
         </button>
       </div>
 
       <button
-        onClick={onClickSinCodigo}
-        disabled={subiendoFoto || cargandoProducto}
-        className="mb-5 w-full rounded-md border border-line px-4 py-3 text-sm font-medium text-paper transition-colors hover:border-muted disabled:opacity-50"
+        onClick={confirmarYSeguir}
+        disabled={cargandoProducto}
+        className="mb-2.5 flex w-full items-center justify-center gap-2 rounded-full bg-brand px-4 py-3.5 text-base font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
       >
-        Producto sin código de barras
+        <CircleCheckBig size={19} aria-hidden />
+        Confirmar y seguir
       </button>
 
       <button
         onClick={abrirConfirmacionCierre}
         disabled={cerrando}
-        className="mb-5 w-full rounded-md border border-notfound/40 px-4 py-3 text-sm font-medium text-notfound transition-colors hover:bg-notfound-bg disabled:opacity-50"
+        className="mb-3 w-full rounded-full bg-surface-danger px-4 py-3 text-sm font-semibold text-danger transition-opacity hover:opacity-90 disabled:opacity-50"
       >
         {cerrando ? "Sincronizando…" : "Cerrar conteo"}
       </button>
 
       {errorCierre && !confirmandoCierre && (
-        <p className="mb-5 rounded-md border border-notfound/30 bg-notfound-bg px-3.5 py-2.5 text-sm text-notfound">
-          {errorCierre}
-        </p>
+        <p className="mb-3 rounded-lg bg-surface-danger px-3.5 py-2.5 text-sm text-danger">{errorCierre}</p>
       )}
 
-      {mostrarCantidadManual && (
-        <div className="mb-5 space-y-2.5 rounded-lg border border-line bg-ink-2 p-3.5">
-          {errorCantidadManual && (
-            <p className="rounded-md border border-notfound/30 bg-notfound-bg px-3 py-2 text-sm text-notfound">
-              {errorCantidadManual}
-            </p>
-          )}
-          <input
-            type="text"
-            value={codigoManual}
-            onChange={(e) => {
-              setCodigoManual(e.target.value);
-              setErrorCantidadManual(null);
-            }}
-            placeholder="Código o nombre"
-            className="w-full rounded-md border border-line bg-ink px-3 py-2.5 text-sm text-paper outline-none focus:border-brand"
-          />
-          {sugerenciasCantidadManual.length > 0 && (
-            <ul className="space-y-1 rounded-md border border-line bg-ink p-1.5">
-              {sugerenciasCantidadManual.map((l) => (
-                <li key={l.id}>
-                  <button
-                    type="button"
-                    onClick={() => setCodigoManual(l.codigoNorm)}
-                    className="w-full rounded px-2 py-1.5 text-left text-sm text-paper hover:bg-ink-2"
-                  >
-                    <span className="block truncate">{l.nombre}</span>
-                    {l.presentacion && <span className="block truncate text-xs text-muted">{l.presentacion}</span>}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <input
-            type="text"
-            inputMode="numeric"
-            value={cantidadManual}
-            onChange={(e) => {
-              setCantidadManual(e.target.value.replace(/\D/g, ""));
-              setErrorCantidadManual(null);
-            }}
-            autoFocus
-            onFocus={(e) => e.target.select()}
-            className="w-full rounded-md border border-line bg-ink px-3 py-2.5 text-sm text-paper outline-none focus:border-brand"
-          />
-          <button
-            onClick={onCantidadManualSubmit}
-            className="w-full rounded-md bg-brand px-3 py-2.5 text-sm font-medium text-ink transition-opacity hover:opacity-90"
-          >
-            Agregar
-          </button>
+      <div className="mb-2.5 flex items-end justify-between gap-3">
+        <div>
+          <h2 className="text-base font-bold text-strong">Productos contados</h2>
+          {/* Decorativo por ahora: la lista SÍ está ordenada por último
+              escaneo (ver refrescarLineas), pero todavía no hay otro
+              orden para elegir — cuando lo haya, esto pasa a ser un
+              selector. */}
+          <p className="mt-0.5 flex items-center gap-1 text-xs text-soft">
+            <ArrowDownUp size={12} aria-hidden />
+            Más recientes
+          </p>
         </div>
-      )}
+        <span className="shrink-0 text-xs text-soft">
+          Total:{" "}
+          <strong className="font-semibold tabular-nums text-strong">
+            {totalUnidades.toLocaleString("es-BO")}
+          </strong>
+        </span>
+      </div>
 
       <div className="flex-1 overflow-auto">
         {lineas.length === 0 && lineasDesc.length === 0 && (
-          <p className="mt-8 text-center text-sm text-muted">Todavía no escaneaste nada.</p>
+          <p className="mt-8 text-center text-sm text-soft">Todavía no escaneaste nada.</p>
         )}
         <ul className="space-y-2">
           {lineas.map((l) => (
             <li
               key={l.id}
-              className="flex items-center justify-between rounded-md border border-line bg-ink-2 px-3.5 py-2.5"
+              className="flex items-center gap-3 rounded-xl border border-line-light bg-surface p-2.5"
             >
-              <div className="min-w-0">
-                <p className="truncate text-sm text-paper">{l.nombre}</p>
-                {l.presentacion && <p className="truncate text-xs text-muted">{l.presentacion}</p>}
-                <p className="truncate font-mono text-xs text-muted/70">{l.codigoNorm}</p>
+              <Miniatura chico />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-strong">{l.nombre}</p>
+                {l.presentacion && <p className="truncate text-xs text-soft">{l.presentacion}</p>}
+                <p className="truncate font-mono text-[0.6875rem] text-soft">{l.codigoNorm}</p>
               </div>
               {editando === l.id ? (
                 <div className="flex shrink-0 items-center gap-2">
@@ -946,30 +1007,46 @@ export function PantallaConteo({
                     inputMode="numeric"
                     value={valorEdicion}
                     onChange={(e) => setValorEdicion(e.target.value.replace(/\D/g, ""))}
-                    className="w-16 rounded-md border border-line bg-ink px-2 py-1 text-right text-paper outline-none focus:border-brand"
+                    className="w-16 rounded-lg border border-line-light bg-surface px-2 py-1 text-right font-mono text-strong outline-none focus:border-brand"
                     autoFocus
                   />
-                  <button onClick={() => guardarEdicionProducto(l.id)} className="text-sm font-medium text-found">
+                  <button
+                    onClick={() => guardarEdicionProducto(l.id)}
+                    className="text-sm font-bold text-brand"
+                  >
                     OK
                   </button>
                 </div>
               ) : (
-                <div className="flex shrink-0 flex-col items-end">
-                  <button
-                    onClick={() => empezarEdicion(l.id, l.cantidad)}
-                    className="rounded-md bg-ink-3 px-3 py-1 font-mono text-lg font-semibold tabular-nums text-paper"
-                  >
-                    {l.cantidad}
-                  </button>
+                <div className="flex shrink-0 items-center gap-0.5">
                   {/* Los dos números a la vista de un vistazo: envases
                       arriba, picado abajo. La edición inline sigue siendo
                       solo de envases; las sueltas se cargan desde el botón
                       PICADO de la tarjeta (o se deshacen con Deshacer). */}
-                  {(l.unidadesSueltas ?? 0) > 0 && (
-                    <span className="mt-0.5 font-mono text-[11px] font-semibold tabular-nums text-brand">
-                      + {l.unidadesSueltas} sueltas
-                    </span>
-                  )}
+                  <div className="flex flex-col items-end">
+                    <button
+                      onClick={() => empezarEdicion(l.id, l.cantidad)}
+                      className="rounded-full bg-surface-mint px-3 py-1 font-mono text-base font-bold tabular-nums text-brand"
+                    >
+                      {l.cantidad}
+                    </button>
+                    {(l.unidadesSueltas ?? 0) > 0 && (
+                      <span className="mt-0.5 font-mono text-[0.6875rem] font-semibold tabular-nums text-brand">
+                        + {l.unidadesSueltas} sueltas
+                      </span>
+                    )}
+                  </div>
+                  {/* El "⋮" del diseño: por ahora no abre un menú con
+                      varias opciones, hace lo mismo que tocar el número
+                      (editar la cantidad), que es la única acción que
+                      existe hoy para una línea. */}
+                  <button
+                    onClick={() => empezarEdicion(l.id, l.cantidad)}
+                    aria-label={`Editar cantidad de ${l.nombre}`}
+                    className="p-1 text-soft transition-colors hover:text-strong"
+                  >
+                    <EllipsisVertical size={16} aria-hidden />
+                  </button>
                 </div>
               )}
             </li>
@@ -978,11 +1055,12 @@ export function PantallaConteo({
           {lineasDesc.map((l) => (
             <li
               key={l.id}
-              className="flex items-center justify-between rounded-md border border-dashed border-line px-3.5 py-2.5"
+              className="flex items-center gap-3 rounded-xl border border-dashed border-line-light bg-surface/60 p-2.5"
             >
-              <div className="min-w-0">
-                <p className="truncate text-sm text-muted">Sin identificar</p>
-                <p className="truncate font-mono text-xs text-muted/70">{l.codigoNorm}</p>
+              <Miniatura chico />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-soft">Sin identificar</p>
+                <p className="truncate font-mono text-[0.6875rem] text-soft">{l.codigoNorm}</p>
               </div>
               {editando === l.id ? (
                 <div className="flex shrink-0 items-center gap-2">
@@ -991,23 +1069,32 @@ export function PantallaConteo({
                     inputMode="numeric"
                     value={valorEdicion}
                     onChange={(e) => setValorEdicion(e.target.value.replace(/\D/g, ""))}
-                    className="w-16 rounded-md border border-line bg-ink px-2 py-1 text-right text-paper outline-none focus:border-brand"
+                    className="w-16 rounded-lg border border-line-light bg-surface px-2 py-1 text-right font-mono text-strong outline-none focus:border-brand"
                     autoFocus
                   />
                   <button
                     onClick={() => guardarEdicionDesconocido(l.codigoNorm)}
-                    className="text-sm font-medium text-found"
+                    className="text-sm font-bold text-brand"
                   >
                     OK
                   </button>
                 </div>
               ) : (
-                <button
-                  onClick={() => empezarEdicion(l.id, l.cantidad)}
-                  className="shrink-0 rounded-md bg-ink-3 px-3 py-1 font-mono text-lg font-semibold tabular-nums text-muted"
-                >
-                  {l.cantidad}
-                </button>
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <button
+                    onClick={() => empezarEdicion(l.id, l.cantidad)}
+                    className="rounded-full bg-surface-soft px-3 py-1 font-mono text-base font-bold tabular-nums text-soft"
+                  >
+                    {l.cantidad}
+                  </button>
+                  <button
+                    onClick={() => empezarEdicion(l.id, l.cantidad)}
+                    aria-label="Editar cantidad del producto sin identificar"
+                    className="p-1 text-soft transition-colors hover:text-strong"
+                  >
+                    <EllipsisVertical size={16} aria-hidden />
+                  </button>
+                </div>
               )}
             </li>
           ))}
@@ -1015,43 +1102,41 @@ export function PantallaConteo({
       </div>
 
       {confirmandoCierre && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-6">
-          <div className="w-full max-w-sm rounded-lg border border-line bg-ink-2 p-6 shadow-xl">
-            <h2 className="mb-3 text-lg font-semibold text-paper">¿Cerrar este conteo?</h2>
-            <p className="mb-2 text-sm text-muted">
-              Quedan registradas <strong className="text-paper">{totalUnidades.toLocaleString("es-BO")}</strong>{" "}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-strong/50 p-6">
+          <div className="w-full max-w-sm rounded-2xl bg-surface p-6 shadow-xl">
+            <h2 className="mb-3 text-lg font-semibold text-strong">¿Cerrar este conteo?</h2>
+            <p className="mb-2 text-sm text-soft">
+              Quedan registradas <strong className="text-strong">{totalUnidades.toLocaleString("es-BO")}</strong>{" "}
               unidades
               {totalSueltas > 0 && (
                 <>
                   {" "}
-                  y <strong className="text-paper">{totalSueltas.toLocaleString("es-BO")}</strong> unidades
+                  y <strong className="text-strong">{totalSueltas.toLocaleString("es-BO")}</strong> unidades
                   sueltas (picado)
                 </>
               )}
               . Una vez cerrado no se puede volver a escanear acá.
             </p>
             {lineasDesc.length > 0 && (
-              <p className="mb-4 rounded-md border border-duplicate/30 bg-duplicate-bg px-3 py-2 text-sm text-duplicate">
+              <p className="mb-4 rounded-lg bg-duplicate/10 px-3 py-2 text-sm text-duplicate">
                 Ojo: hay {lineasDesc.length} producto(s) sin identificar todavía.
               </p>
             )}
             {errorCierre && (
-              <p className="mb-4 rounded-md border border-notfound/30 bg-notfound-bg px-3 py-2 text-sm text-notfound">
-                {errorCierre}
-              </p>
+              <p className="mb-4 rounded-lg bg-surface-danger px-3 py-2 text-sm text-danger">{errorCierre}</p>
             )}
             <div className="flex gap-3">
               <button
                 onClick={confirmarCierre}
                 disabled={cerrando}
-                className="flex-1 rounded-md bg-notfound px-4 py-3 text-sm font-medium text-ink transition-opacity hover:opacity-90 disabled:opacity-50"
+                className="flex-1 rounded-full bg-danger px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {cerrando ? "Cerrando…" : "Sí, cerrar"}
               </button>
               <button
                 onClick={() => setConfirmandoCierre(false)}
                 disabled={cerrando}
-                className="flex-1 rounded-md border border-line px-4 py-3 text-sm font-medium text-paper transition-colors hover:border-muted"
+                className="flex-1 rounded-full bg-surface-soft px-4 py-3 text-sm font-semibold text-strong transition-colors hover:bg-line-light"
               >
                 Cancelar
               </button>
