@@ -7,9 +7,12 @@ import { exportarCatalogoCompleto } from "@/lib/exportar-catalogo";
 interface ProductoFila {
   id: string;
   nombre: string;
+  marca: string | null;
   laboratorio_id: string | null;
   principio_activo: string | null;
   concentracion: string | null;
+  accion_terapeutica: string | null;
+  especialidad: string | null;
   contenido: number | null;
   unidad: string | null;
   categoria: string | null;
@@ -55,12 +58,32 @@ function VencimientoBadge({ fecha, umbral }: { fecha: string; umbral: UmbralSema
   return <span className={color}>{texto}</span>;
 }
 
+// Una fila de la sección "Lotes y vencimientos" del modal. Mapea 1 a 1 con
+// una fila de la tabla `lotes` — la MISMA que alimenta el semáforo de
+// vencimientos y el desglose que ve pdvlat, no una copia de catálogo (para
+// eso ya existen productos_empresa.lote_catalogo / _2, que son otra cosa:
+// texto estático del proveedor, ver 20260813000007).
+interface LoteForm {
+  /** Presente = la fila ya existe en `lotes`. Ausente = alta nueva. */
+  id?: string;
+  sucursalId: string;
+  lote: string; // `lotes.lote` es nullable: vacío se guarda como null
+  vencimiento: string; // yyyy-mm-dd, obligatorio (`lotes.vencimiento` es NOT NULL)
+  /** La generó un conteo físico cerrado: se muestra pero NO se toca. */
+  deConteo: boolean;
+  /** Solo para mostrar en las filas de conteo — la carga manual nunca la escribe. */
+  cantidad: number;
+}
+
 interface FormState {
   id?: string;
   nombre: string;
+  marca: string;
   laboratorioNombre: string;
   principioActivo: string;
   concentracion: string;
+  accionTerapeutica: string;
+  especialidad: string;
   contenido: string;
   unidad: string;
   unidadModoLibre: boolean; // UI: true si "unidad" no está en UNIDADES_PRESENTACION (select en modo "Otro…") — no se persiste
@@ -72,21 +95,38 @@ interface FormState {
   codigoBarra: string; // solo se usa al crear
   unidadesPorCodigo: string; // solo se usa al crear
   costo: string;
-  precio: string;
+  precio: string; // precio de la CAJA/envase completo — ver el bloque de fraccionamiento
   stockMinimo: string;
   codigoProveedor: string;
   distribuidor: string;
   loteCatalogo: string;
   loteCatalogo2: string;
+  // ── Venta fraccionada (productos_empresa, por empresa) ──────
+  fraccionable: boolean;
+  unidadesPorBlister: string;
+  blistersPorCaja: string;
+  precioBlister: string;
+  precioUnidad: string;
+  /** true si el producto ya tenía fila en productos_empresa al abrirlo.
+   * Hace que "borré todos los precios" se guarde de verdad en vez de
+   * quedar en nada porque el upsert no llegó a dispararse. */
+  tieneFilaEmpresa: boolean;
   sucursalesDisponibles: string[]; // ids de sucursal — solo informativo, ver productos_sucursales
   camposExtra: Record<string, string>; // clave -> valor, ver campos personalizados
+  lotes: LoteForm[];
+  /** ids de los lotes MANUALES que se cargaron al abrir. Lo que esté acá y
+   * ya no esté en `lotes` se borra al guardar. */
+  lotesIdsOriginales: string[];
 }
 
 const FORM_VACIO: FormState = {
   nombre: "",
+  marca: "",
   laboratorioNombre: "",
   principioActivo: "",
   concentracion: "",
+  accionTerapeutica: "",
+  especialidad: "",
   contenido: "",
   unidad: "",
   unidadModoLibre: false,
@@ -104,8 +144,16 @@ const FORM_VACIO: FormState = {
   distribuidor: "",
   loteCatalogo: "",
   loteCatalogo2: "",
+  fraccionable: false,
+  unidadesPorBlister: "",
+  blistersPorCaja: "",
+  precioBlister: "",
+  precioUnidad: "",
+  tieneFilaEmpresa: false,
   sucursalesDisponibles: [],
   camposExtra: {},
+  lotes: [],
+  lotesIdsOriginales: [],
 };
 
 interface LoteResumen {
@@ -150,14 +198,91 @@ function mensajeDeError(e: unknown, fallback: string): string {
   return fallback;
 }
 
+// Un choque contra ix_lotes_clave (empresa, sucursal, bodega, producto,
+// lote, vencimiento) llega como un 23505 crudo de Postgres, con el nombre
+// del índice adentro y nada que le sirva a quien está cargando. El caso
+// real es siempre el mismo: ya existe ese lote con esa fecha en esa
+// sucursal — muchas veces porque lo dejó un conteo y está justo ahí
+// arriba en la lista, en gris.
+function errorDeLote(e: { code?: string } | null): Error {
+  if (e?.code === "23505") {
+    return new Error(
+      "Ya existe un lote con ese número y esa fecha de vencimiento en esa sucursal. Fijate en la lista: puede ser uno que cargó un conteo."
+    );
+  }
+  return new Error(mensajeDeError(e, "No se pudieron guardar los lotes."));
+}
+
 const TAMANO_PAGINA = 50;
 
 // Mismo vocabulario fijo que ya usa /desconocidos (panel-detalle.tsx) para
 // este campo — ver docs/decisiones.md, 2026-08-14. Duplicado a propósito,
-// no compartido: cada pantalla de apps/admin ya sigue ese criterio.
-const UNIDADES_PRESENTACION = ["comprimidos", "capsulas", "ml", "g", "unidades", "sobres", "ampollas"];
+// no compartido: cada pantalla de apps/admin ya sigue ese criterio (por eso
+// las presentaciones que se agregaron acá el 2026-09-15 NO se replicaron
+// allá — /desconocidos resuelve otro problema y su lista es suya).
+//
+// Convención de la lista: minúsculas, sin acentos, y el valor se muestra
+// tal cual como etiqueta del <option>. Por eso "tableta efervescente" va
+// con espacio y no con guión bajo: se persiste igual que se lee. Los 7
+// valores originales (comprimidos, capsulas, ml, g, unidades, sobres,
+// ampollas) siguen escritos exactamente igual — hay productos guardados
+// con esos strings y renombrarlos los dejaría en "Otro…".
+const UNIDADES_PRESENTACION = [
+  "comprimidos",
+  "capsulas",
+  "tabletas",
+  "tableta efervescente",
+  "jarabe",
+  "suspension",
+  "ampollas",
+  "vial",
+  "gotas",
+  "frasco",
+  "sobres",
+  "polvos",
+  "gel",
+  "crema",
+  "pomada",
+  "unguento",
+  "aceite",
+  "parches",
+  "ml",
+  "g",
+  "unidades",
+];
 
 const CONTENIDOS_SUGERIDOS = ["10", "15", "20", "30", "50", "60", "100", "120", "150", "200", "250", "300", "500", "1000"];
+
+// Qué campos extra tiene sentido pedir según la presentación. Vive acá y
+// no en la base a propósito: es criterio de formulario (qué se le muestra
+// a quien carga), no un dato de negocio que una empresa necesite editar —
+// si algún día lo necesita, recién ahí se mueve a empresas.config.
+//
+// Una presentación que no esté en el mapa (las de texto libre del "Otro…",
+// y todas las que no figuran acá) cae en el objeto vacío: el formulario
+// queda exactamente como estaba antes de este cambio.
+interface CamposPresentacion {
+  /** Sólido en blíster: se puede vender caja / blíster / unidad suelta. */
+  fraccionable?: boolean;
+  /** Líquido: `contenido` se rotula en mililitros, y no hay blísteres. */
+  contenidoEnMl?: boolean;
+}
+
+const CAMPOS_POR_PRESENTACION: Record<string, CamposPresentacion> = {
+  comprimidos: { fraccionable: true },
+  capsulas: { fraccionable: true },
+  tabletas: { fraccionable: true },
+  // "tableta efervescente" queda AFUERA del fraccionamiento a propósito
+  // (pedido explícito del usuario): viene en tubo, no en blíster.
+  jarabe: { contenidoEnMl: true },
+  suspension: { contenidoEnMl: true },
+  ampollas: { contenidoEnMl: true },
+  vial: { contenidoEnMl: true },
+};
+
+function camposDePresentacion(unidad: string): CamposPresentacion {
+  return CAMPOS_POR_PRESENTACION[unidad] ?? {};
+}
 
 function esUnidadPersonalizada(unidad: string): boolean {
   return unidad !== "" && !UNIDADES_PRESENTACION.includes(unidad);
@@ -503,7 +628,7 @@ export function ProductosAbm({
       let query = supabase
         .from("productos")
         .select(
-          "id, nombre, laboratorio_id, principio_activo, concentracion, contenido, unidad, categoria, fabricante, requiere_receta, controlado, activo, laboratorios(nombre), codigos_barra(codigo_raw, es_principal)",
+          "id, nombre, marca, laboratorio_id, principio_activo, concentracion, accion_terapeutica, especialidad, contenido, unidad, categoria, fabricante, requiere_receta, controlado, activo, laboratorios(nombre), codigos_barra(codigo_raw, es_principal)",
           { count: "exact" }
         )
         .order("nombre")
@@ -635,8 +760,15 @@ export function ProductosAbm({
     setForm({
       ...FORM_VACIO,
       nombre: p.nombre,
+      // marca/acción terapéutica/especialidad viajan con el nombre: una
+      // variante de "Tafirol 500" sigue siendo "Tafirol" y sigue siendo un
+      // analgésico. El fraccionamiento NO viaja — depende del tamaño del
+      // envase, que es justamente lo que cambia en una variante.
+      marca: p.marca ?? "",
       laboratorioNombre: p.laboratorios?.nombre ?? "",
       principioActivo: p.principio_activo ?? "",
+      accionTerapeutica: p.accion_terapeutica ?? "",
+      especialidad: p.especialidad ?? "",
       categoria: p.categoria ?? "",
       fabricante: p.fabricante ?? "",
       requiereReceta: p.requiere_receta,
@@ -649,7 +781,7 @@ export function ProductosAbm({
     const { data: pe } = await supabase
       .from("productos_empresa")
       .select(
-        "costo, precio, stock_minimo, codigo_proveedor, distribuidor, lote_catalogo, lote_catalogo_2, campos_extra"
+        "costo, precio, stock_minimo, codigo_proveedor, distribuidor, lote_catalogo, lote_catalogo_2, campos_extra, fraccionable, unidades_por_blister, blisters_por_caja, precio_blister, precio_unidad"
       )
       .eq("empresa_id", empresaId)
       .eq("producto_id", p.id)
@@ -661,12 +793,36 @@ export function ProductosAbm({
       .eq("empresa_id", empresaId)
       .eq("producto_id", p.id);
 
+    // Lotes reales del producto en esta empresa. Se traen TODOS, no solo
+    // los manuales: mostrar también los que dejó un conteo (en gris, sin
+    // editar) es lo que evita que alguien cargue a mano un lote que ya
+    // existe y se coma un choque contra ix_lotes_clave sin entender por
+    // qué. Se ordenan por vencimiento, igual que el resto de la pantalla.
+    const { data: lotesData } = await supabase
+      .from("lotes")
+      .select("id, sucursal_id, lote, vencimiento, cantidad, actualizado_en_conteo_id")
+      .eq("empresa_id", empresaId)
+      .eq("producto_id", p.id)
+      .order("vencimiento", { ascending: true });
+
+    const lotes: LoteForm[] = (lotesData ?? []).map((l) => ({
+      id: l.id,
+      sucursalId: l.sucursal_id,
+      lote: l.lote ?? "",
+      vencimiento: l.vencimiento,
+      deConteo: l.actualizado_en_conteo_id !== null,
+      cantidad: l.cantidad,
+    }));
+
     setForm({
       id: p.id,
       nombre: p.nombre,
+      marca: p.marca ?? "",
       laboratorioNombre: p.laboratorios?.nombre ?? "",
       principioActivo: p.principio_activo ?? "",
       concentracion: p.concentracion ?? "",
+      accionTerapeutica: p.accion_terapeutica ?? "",
+      especialidad: p.especialidad ?? "",
       contenido: p.contenido != null ? String(p.contenido) : "",
       unidad: p.unidad ?? "",
       unidadModoLibre: esUnidadPersonalizada(p.unidad ?? ""),
@@ -684,9 +840,41 @@ export function ProductosAbm({
       distribuidor: pe?.distribuidor ?? "",
       loteCatalogo: pe?.lote_catalogo ?? "",
       loteCatalogo2: pe?.lote_catalogo_2 ?? "",
+      fraccionable: pe?.fraccionable ?? false,
+      unidadesPorBlister: pe?.unidades_por_blister != null ? String(pe.unidades_por_blister) : "",
+      blistersPorCaja: pe?.blisters_por_caja != null ? String(pe.blisters_por_caja) : "",
+      precioBlister: pe?.precio_blister != null ? String(pe.precio_blister) : "",
+      precioUnidad: pe?.precio_unidad != null ? String(pe.precio_unidad) : "",
+      tieneFilaEmpresa: pe != null,
       sucursalesDisponibles: (disp ?? []).map((d) => d.sucursal_id),
       camposExtra: (pe?.campos_extra as Record<string, string> | null) ?? {},
+      lotes,
+      lotesIdsOriginales: lotes.filter((l) => !l.deConteo && l.id).map((l) => l.id as string),
     });
+  }
+
+  // ── Presentación → qué campos extra se muestran ──────────────
+  // Calculado en render (no en estado): es una proyección pura de
+  // `form.unidad` + `form.fraccionable`, mismo criterio que
+  // `columnasCombinadas` de más arriba. Lo leen tanto el JSX como
+  // `guardar`, así que vive una sola vez acá y no se duplica.
+  //
+  // `fraccionaAhora` exige LAS DOS cosas: que la presentación admita
+  // blísteres Y que el checkbox esté tildado. Así, si alguien tenía un
+  // producto fraccionable y le cambia la presentación a "jarabe", el
+  // bloque desaparece y al guardar se limpian las columnas — no queda un
+  // jarabe con blísteres colgado en la base.
+  const camposPresentacion = form ? camposDePresentacion(form.unidad) : {};
+  const fraccionaAhora = !!form && camposPresentacion.fraccionable === true && form.fraccionable;
+  // blísteres × unidades. El `|| ""` cubre el caso "todavía no cargó
+  // ninguno de los dos" (0 no es un contenido válido, es un campo vacío).
+  const contenidoDerivado =
+    form && fraccionaAhora ? String(Number(form.blistersPorCaja) * Number(form.unidadesPorBlister) || "") : "";
+  const contenidoEfectivo = fraccionaAhora ? contenidoDerivado : (form?.contenido ?? "");
+
+  function actualizarLote(i: number, cambios: Partial<LoteForm>) {
+    if (!form) return;
+    setForm({ ...form, lotes: form.lotes.map((l, j) => (j === i ? { ...l, ...cambios } : l)) });
   }
 
   async function guardar() {
@@ -694,6 +882,33 @@ export function ProductosAbm({
     setGuardando(true);
     setError(null);
     try {
+      // ── Validaciones del bloque de fraccionamiento ─────────────
+      // Solo el formulario valida esto: la base no lleva CHECK a
+      // propósito (ver 20260918000000). Si el bloque no se está
+      // mostrando, `fraccionaAhora` es false y nada de esto aplica.
+      if (fraccionaAhora) {
+        const upb = Number(form.unidadesPorBlister);
+        const bpc = Number(form.blistersPorCaja);
+        if (!Number.isFinite(upb) || upb <= 0 || !Number.isFinite(bpc) || bpc <= 0) {
+          throw new Error(
+            "Un producto fraccionable necesita cuántas unidades trae el blíster y cuántos blísteres la caja (ambos mayores a 0)."
+          );
+        }
+        if (!form.precio.trim()) {
+          throw new Error("Cargá al menos el precio de la caja: es la base de los otros dos niveles.");
+        }
+      }
+
+      // Lotes: mismas reglas que la tabla. `vencimiento` es NOT NULL y
+      // `sucursal_id` es FK, así que se chequean acá antes de gastar
+      // round-trips — el error de Postgres sería mucho menos legible.
+      for (const l of form.lotes) {
+        if (l.deConteo) continue;
+        if (!l.sucursalId || !l.vencimiento) {
+          throw new Error("Cada lote necesita sucursal y fecha de vencimiento. Borrá la fila que quedó incompleta.");
+        }
+      }
+
       let laboratorioId: string | null = null;
       if (form.laboratorioNombre.trim()) {
         const { data: lab, error: labErr } = await supabase
@@ -707,10 +922,27 @@ export function ProductosAbm({
 
       const payload = {
         nombre: form.nombre.trim(),
+        marca: form.marca || null,
         laboratorio_id: laboratorioId,
         principio_activo: form.principioActivo || null,
         concentracion: form.concentracion || null,
-        contenido: form.contenido ? Number(form.contenido) : null,
+        accion_terapeutica: form.accionTerapeutica || null,
+        especialidad: form.especialidad || null,
+        // OJO — LIMITACIÓN CONOCIDA Y ACEPTADA (ver el comentario largo de
+        // 20260918000000_fraccionamiento_marca_y_lotes_manuales.sql):
+        // `contenido` vive en `productos`, que es el catálogo GLOBAL
+        // compartido por todas las empresas, pero blísteres/caja son datos
+        // POR EMPRESA (productos_empresa). Cuando el producto es
+        // fraccionable, acá se escribe el contenido DERIVADO
+        // (blisters_por_caja × unidades_por_blister) en esa columna global
+        // — que es la que stock_actual/stock_actual_lote ya usan como
+        // factor envase→unidad y cuyo contrato esta pantalla no toca.
+        // Consecuencia: si dos empresas venden el mismo producto global con
+        // desgloses distintos (una 3×10, otra 2×15), se pisan el
+        // `contenido` entre ellas y gana la última que guarde. No se
+        // resuelve en esta pasada; resolverlo sería mover `contenido` a
+        // productos_empresa y reescribir las funciones de stock.
+        contenido: contenidoEfectivo ? Number(contenidoEfectivo) : null,
         unidad: form.unidad || null,
         categoria: form.categoria || null,
         fabricante: form.fabricante || null,
@@ -752,7 +984,15 @@ export function ProductosAbm({
         if (cbErr) throw cbErr;
       }
 
+      // `tieneFilaEmpresa` en el OR: si el producto YA tenía fila en
+      // productos_empresa, se reescribe siempre, aunque el usuario haya
+      // dejado todo en blanco. Sin eso, "le saqué el precio a este
+      // producto" o "lo destildé de fraccionable" no se guardaba nunca —
+      // la condición daba false y el upsert ni se disparaba, dejando el
+      // valor viejo en la base y al usuario mirando un formulario que
+      // decía otra cosa.
       if (
+        form.tieneFilaEmpresa ||
         form.costo ||
         form.precio ||
         form.stockMinimo ||
@@ -760,6 +1000,7 @@ export function ProductosAbm({
         form.distribuidor ||
         form.loteCatalogo ||
         form.loteCatalogo2 ||
+        fraccionaAhora ||
         Object.values(form.camposExtra).some((v) => v)
       ) {
         const { error: peErr } = await supabase.from("productos_empresa").upsert(
@@ -767,6 +1008,10 @@ export function ProductosAbm({
             empresa_id: empresaId,
             producto_id: productoId,
             costo: form.costo ? Number(form.costo) : null,
+            // Precio de la CAJA/envase completo. Los otros dos niveles
+            // (blíster y unidad suelta) van abajo y NO son este número
+            // dividido: el vendedor fija los tres por separado, y suelto
+            // sale más caro por unidad que llevarse la caja entera.
             precio: form.precio ? Number(form.precio) : null,
             stock_minimo: form.stockMinimo ? Number(form.stockMinimo) : null,
             codigo_proveedor: form.codigoProveedor || null,
@@ -774,6 +1019,16 @@ export function ProductosAbm({
             lote_catalogo: form.loteCatalogo || null,
             lote_catalogo_2: form.loteCatalogo2 || null,
             campos_extra: form.camposExtra,
+            // Todo el bloque de fraccionamiento se limpia de una cuando
+            // `fraccionaAhora` es false — sea porque se destildó el
+            // checkbox o porque la presentación pasó a una que no admite
+            // blísteres. Es la contracara de que el bloque desaparezca de
+            // la pantalla: lo que no se ve, no queda guardado.
+            fraccionable: fraccionaAhora,
+            unidades_por_blister: fraccionaAhora ? Number(form.unidadesPorBlister) : null,
+            blisters_por_caja: fraccionaAhora ? Number(form.blistersPorCaja) : null,
+            precio_blister: fraccionaAhora && form.precioBlister ? Number(form.precioBlister) : null,
+            precio_unidad: fraccionaAhora && form.precioUnidad ? Number(form.precioUnidad) : null,
           },
           { onConflict: "empresa_id,producto_id" }
         );
@@ -800,6 +1055,58 @@ export function ProductosAbm({
           }))
         );
         if (insDispErr) throw insDispErr;
+      }
+
+      // ── Lotes y vencimientos ───────────────────────────────────
+      // Se sincroniza la lista contra `lotes` con altas/cambios/bajas en
+      // vez del delete+insert que usa `productos_sucursales` acá arriba:
+      // ahí las filas son descartables (tres columnas, todas de la fila),
+      // acá NO — borrar y reinsertar le cambiaría el id a cada lote y, lo
+      // que importa de verdad, un delete masivo pasaría por arriba de las
+      // filas que dejó un conteo físico, que son intocables (la policy de
+      // DELETE ni siquiera las ve, así que el borrado fallaría a medias).
+      //
+      // Las filas con `deConteo` se saltean enteras en los tres caminos:
+      // son la foto de un recuento real y esta pantalla solo las muestra.
+      const lotesAlta = form.lotes.filter((l) => !l.deConteo && !l.id);
+      const lotesCambio = form.lotes.filter((l) => !l.deConteo && l.id);
+      const lotesBaja = form.lotesIdsOriginales.filter((id) => !form.lotes.some((l) => l.id === id));
+
+      if (lotesBaja.length > 0) {
+        const { error: delLoteErr } = await supabase.from("lotes").delete().in("id", lotesBaja);
+        if (delLoteErr) throw delLoteErr;
+      }
+
+      for (const l of lotesCambio) {
+        const { error: updLoteErr } = await supabase
+          .from("lotes")
+          .update({
+            sucursal_id: l.sucursalId,
+            lote: l.lote.trim() || null,
+            vencimiento: l.vencimiento,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", l.id as string);
+        if (updLoteErr) throw errorDeLote(updLoteErr);
+      }
+
+      if (lotesAlta.length > 0) {
+        // `cantidad` se deja en su default (0) y `actualizado_en_conteo_id`
+        // en null a propósito: esta carga declara "este lote existe y vence
+        // tal día", NO "hay tantas unidades". La existencia física sale
+        // exclusivamente de cerrar un conteo, y ese límite no se difumina
+        // desde una pantalla de catálogo. `bodega_id` también queda null =
+        // "la sucursal entera", igual que en toda empresa sin bodegas.
+        const { error: insLoteErr } = await supabase.from("lotes").insert(
+          lotesAlta.map((l) => ({
+            empresa_id: empresaId,
+            sucursal_id: l.sucursalId,
+            producto_id: productoId,
+            lote: l.lote.trim() || null,
+            vencimiento: l.vencimiento,
+          }))
+        );
+        if (insLoteErr) throw errorDeLote(insLoteErr);
       }
 
       setForm(null);
@@ -1114,13 +1421,26 @@ export function ProductosAbm({
               </Campo>
             )}
 
-            <Campo label="Laboratorio">
-              <input
-                className="input"
-                value={form.laboratorioNombre}
-                onChange={(e) => setForm({ ...form, laboratorioNombre: e.target.value })}
-              />
-            </Campo>
+            <div className="grid grid-cols-2 gap-4">
+              <Campo label="Marca">
+                <input
+                  className="input"
+                  value={form.marca}
+                  onChange={(e) => setForm({ ...form, marca: e.target.value })}
+                />
+                <p className="mt-1 text-xs text-muted">
+                  El nombre comercial con el que se vende (ej. &quot;Tafirol&quot;). No reemplaza al Nombre de arriba
+                  ni se usa para buscar — es un dato más de la ficha.
+                </p>
+              </Campo>
+              <Campo label="Laboratorio">
+                <input
+                  className="input"
+                  value={form.laboratorioNombre}
+                  onChange={(e) => setForm({ ...form, laboratorioNombre: e.target.value })}
+                />
+              </Campo>
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <Campo label="Principio activo">
@@ -1151,15 +1471,37 @@ export function ProductosAbm({
                   onChange={(e) => setForm({ ...form, fabricante: e.target.value })}
                 />
               </Campo>
+              {/* Texto libre, igual que Categoría: el vocabulario todavía
+                  no está cerrado y un select adivinado envejecería mal. */}
+              <Campo label="Acción terapéutica">
+                <input
+                  className="input"
+                  value={form.accionTerapeutica}
+                  onChange={(e) => setForm({ ...form, accionTerapeutica: e.target.value })}
+                />
+              </Campo>
+              <Campo label="Especialidad">
+                <input
+                  className="input"
+                  value={form.especialidad}
+                  onChange={(e) => setForm({ ...form, especialidad: e.target.value })}
+                />
+              </Campo>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <Campo label="Contenido">
+              {/* Con fraccionable tildado, Contenido pasa a ser DERIVADO
+                  (blísteres × unidades) y se muestra de solo lectura: son
+                  el mismo número y dejar los dos editables habilitaba
+                  cargar una caja de 3×10 que dijera contener 24. */}
+              <Campo label={camposPresentacion.contenidoEnMl ? "Contenido (mililitros)" : "Contenido"}>
                 <input
                   type="number"
                   className="input"
                   list="contenido-sugerencias"
-                  value={form.contenido}
+                  value={contenidoEfectivo}
+                  readOnly={fraccionaAhora}
+                  disabled={fraccionaAhora}
                   onChange={(e) => setForm({ ...form, contenido: e.target.value })}
                 />
                 <datalist id="contenido-sugerencias">
@@ -1168,8 +1510,11 @@ export function ProductosAbm({
                   ))}
                 </datalist>
                 <p className="mt-1 text-xs text-muted">
-                  Cantidad numérica del envase, sin la unidad. Ej: un jarabe de 150 ml → escribí 150 acá y elegí
-                  &quot;ml&quot; en Presentación.
+                  {fraccionaAhora
+                    ? "Se calcula solo: blísteres por caja × unidades por blíster."
+                    : camposPresentacion.contenidoEnMl
+                      ? "Mililitros que trae el envase, sin la unidad. Ej: un jarabe de 150 ml → escribí 150."
+                      : "Cantidad numérica del envase, sin la unidad. Ej: un jarabe de 150 ml → escribí 150 acá y elegí “ml” en Presentación."}
                 </p>
               </Campo>
               <Campo label="Presentación">
@@ -1247,7 +1592,7 @@ export function ProductosAbm({
                   onChange={(e) => setForm({ ...form, costo: e.target.value })}
                 />
               </Campo>
-              <Campo label="Precio">
+              <Campo label={fraccionaAhora ? "Precio (caja) *" : "Precio"}>
                 <input
                   type="number"
                   className="input"
@@ -1264,6 +1609,86 @@ export function ProductosAbm({
                 />
               </Campo>
             </div>
+
+            {/* Venta fraccionada: solo para las presentaciones que vienen
+                en blíster (ver CAMPOS_POR_PRESENTACION). Es por EMPRESA —
+                el mismo producto global puede venderse fraccionado en una
+                farmacia y solo por caja en otra. */}
+            {camposPresentacion.fraccionable && (
+              <div className="rounded-md border border-line bg-paper p-4">
+                <label className="flex items-center gap-2 text-sm text-ink">
+                  <input
+                    type="checkbox"
+                    className="accent-brand"
+                    checked={form.fraccionable}
+                    onChange={(e) => setForm({ ...form, fraccionable: e.target.checked })}
+                  />
+                  Se vende fraccionado (por blíster y/o por unidad suelta)
+                </label>
+
+                {form.fraccionable && (
+                  <>
+                    <div className="mt-4 grid grid-cols-2 gap-4">
+                      <Campo label="Unidades por blíster *">
+                        <input
+                          type="number"
+                          min={1}
+                          className="input"
+                          value={form.unidadesPorBlister}
+                          onChange={(e) => setForm({ ...form, unidadesPorBlister: e.target.value })}
+                        />
+                      </Campo>
+                      <Campo label="Blísteres por caja *">
+                        <input
+                          type="number"
+                          min={1}
+                          className="input"
+                          value={form.blistersPorCaja}
+                          onChange={(e) => setForm({ ...form, blistersPorCaja: e.target.value })}
+                        />
+                      </Campo>
+                      <Campo label="Precio por blíster">
+                        <input
+                          type="number"
+                          className="input"
+                          value={form.precioBlister}
+                          onChange={(e) => setForm({ ...form, precioBlister: e.target.value })}
+                        />
+                      </Campo>
+                      <Campo label="Precio por unidad">
+                        <input
+                          type="number"
+                          className="input"
+                          value={form.precioUnidad}
+                          onChange={(e) => setForm({ ...form, precioUnidad: e.target.value })}
+                        />
+                      </Campo>
+                    </div>
+
+                    <p className="mt-2 text-xs text-muted">
+                      Los tres precios son independientes: llevar un blíster suelto suele salir más caro por unidad
+                      que llevarse la caja entera. No se calculan dividiendo el precio de la caja.
+                      {contenidoDerivado && ` Esta caja queda en ${contenidoDerivado} unidades.`}
+                    </p>
+
+                    {/* Aviso, no bloqueo: se puede guardar el desglose hoy
+                        y poner los precios sueltos mañana. Lo único
+                        obligatorio es el precio de la caja, que es el que
+                        ya usa el resto del sistema. */}
+                    {(!form.precioBlister || !form.precioUnidad) && (
+                      <p className="mt-2 text-xs text-warn">
+                        Te falta cargar {!form.precioBlister && !form.precioUnidad
+                          ? "el precio por blíster y el precio por unidad"
+                          : !form.precioBlister
+                            ? "el precio por blíster"
+                            : "el precio por unidad"}
+                        . Se puede guardar igual, pero hasta que estén no se puede cobrar ese nivel.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <Campo label="Código de proveedor">
                 <input
@@ -1431,6 +1856,111 @@ export function ProductosAbm({
                 <p className="mt-1.5 text-xs text-muted">
                   Para corregir una rotura, un faltante o un conteo mal cargado sin rehacer el conteo entero. Queda
                   registrado quién, cuándo y por qué — el motivo es obligatorio.
+                </p>
+              </div>
+            )}
+
+            {/* Lotes y vencimientos: igual que el stock de arriba, solo al
+                EDITAR — un producto que todavía no existe no tiene a qué
+                colgarle un lote. Escribe la tabla `lotes` REAL, la misma
+                que alimenta el semáforo de vencimientos y el desglose que
+                ve pdvlat, no una copia de catálogo. */}
+            {form.id && sucursales.length > 0 && (
+              <div className="border-t border-line pt-4">
+                <span className="mb-1.5 block text-xs font-medium text-muted">Lotes y vencimientos</span>
+
+                {form.lotes.length === 0 && (
+                  <p className="text-sm text-muted">Todavía no hay lotes cargados para este producto.</p>
+                )}
+
+                <ul className="space-y-1.5">
+                  {form.lotes.map((l, i) =>
+                    l.deConteo ? (
+                      // Filas que dejó un conteo físico cerrado: se ven
+                      // pero no se tocan, ni acá ni en la base (las
+                      // policies de UPDATE/DELETE de `lotes` ni siquiera
+                      // las alcanzan). Se muestran igual porque son las
+                      // que chocan contra la llave única si alguien carga
+                      // el mismo lote a mano sin saber que ya existía.
+                      <li
+                        key={l.id}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-line bg-paper px-3 py-2 text-sm"
+                      >
+                        <span className="text-ink">{sucursales.find((s) => s.id === l.sucursalId)?.nombre ?? "—"}</span>
+                        <span className="text-muted">{l.lote || "sin nº de lote"}</span>
+                        <VencimientoBadge fecha={l.vencimiento} umbral={umbralVencimiento} />
+                        <span className="ml-auto text-xs text-muted">
+                          {l.cantidad} en el último conteo · no editable
+                        </span>
+                      </li>
+                    ) : (
+                      <li key={l.id ?? `nuevo-${i}`} className="rounded-md border border-line px-3 py-2">
+                        <div className="flex flex-wrap items-end gap-2">
+                          <label className="block min-w-40 flex-1">
+                            <span className="mb-1 block text-xs font-medium text-muted">Sucursal *</span>
+                            <select
+                              className="input"
+                              value={l.sucursalId}
+                              onChange={(e) => actualizarLote(i, { sucursalId: e.target.value })}
+                            >
+                              {sucursales.map((s) => (
+                                <option key={s.id} value={s.id}>
+                                  {s.nombre}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="block min-w-32 flex-1">
+                            <span className="mb-1 block text-xs font-medium text-muted">Nº de lote</span>
+                            <input
+                              className="input"
+                              value={l.lote}
+                              onChange={(e) => actualizarLote(i, { lote: e.target.value })}
+                              placeholder="Opcional"
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="mb-1 block text-xs font-medium text-muted">Vencimiento *</span>
+                            <input
+                              type="date"
+                              className="input"
+                              value={l.vencimiento}
+                              onChange={(e) => actualizarLote(i, { vencimiento: e.target.value })}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => setForm({ ...form, lotes: form.lotes.filter((_, j) => j !== i) })}
+                            className="py-2 text-sm font-medium text-danger hover:underline"
+                          >
+                            Quitar
+                          </button>
+                        </div>
+                      </li>
+                    )
+                  )}
+                </ul>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm({
+                      ...form,
+                      lotes: [
+                        ...form.lotes,
+                        { sucursalId: sucursales[0].id, lote: "", vencimiento: "", deConteo: false, cantidad: 0 },
+                      ],
+                    })
+                  }
+                  className="mt-2 flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-paper"
+                >
+                  <IconMas className="h-3.5 w-3.5" />
+                  Agregar lote
+                </button>
+
+                <p className="mt-1.5 text-xs text-muted">
+                  Sirve para vigilar vencimientos sin esperar al próximo conteo físico. No declara cuánto hay: la
+                  existencia sale del conteo y de los ajustes, nunca de acá.
                 </p>
               </div>
             )}

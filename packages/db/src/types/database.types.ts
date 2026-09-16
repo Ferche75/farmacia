@@ -152,6 +152,9 @@ export interface Database {
           activo: boolean;
           categoria: string | null;
           fabricante: string | null;
+          marca: string | null;
+          accion_terapeutica: string | null;
+          especialidad: string | null;
           creado_por: string | null;
           actualizado_por: string | null;
           created_at: string;
@@ -172,6 +175,9 @@ export interface Database {
           activo?: boolean;
           categoria?: string | null;
           fabricante?: string | null;
+          marca?: string | null;
+          accion_terapeutica?: string | null;
+          especialidad?: string | null;
           creado_por?: string | null;
           actualizado_por?: string | null;
           created_at?: string;
@@ -230,6 +236,14 @@ export interface Database {
           lote_catalogo: string | null;
           lote_catalogo_2: string | null;
           campos_extra: Json;
+          // Venta fraccionada (20260918000000). `precio` es el de la CAJA
+          // completa; estos otros dos NO son ese valor dividido — los tres
+          // niveles los fija el vendedor por separado.
+          fraccionable: boolean;
+          unidades_por_blister: number | null;
+          blisters_por_caja: number | null;
+          precio_blister: number | null;
+          precio_unidad: number | null;
           activo: boolean;
         };
         Insert: {
@@ -243,6 +257,11 @@ export interface Database {
           lote_catalogo?: string | null;
           lote_catalogo_2?: string | null;
           campos_extra?: Json;
+          fraccionable?: boolean;
+          unidades_por_blister?: number | null;
+          blisters_por_caja?: number | null;
+          precio_blister?: number | null;
+          precio_unidad?: number | null;
           activo?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["productos_empresa"]["Insert"]>;
