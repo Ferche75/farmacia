@@ -7,11 +7,25 @@ export const dynamic = "force-dynamic";
 const LIMITE_DEFAULT = 500;
 const LIMITE_MAX = 1000;
 
+// Redondeo a 2 decimales para todo lo que sea plata, preservando el
+// null: las columnas de precio son numeric(14, 4) y todas son
+// opcionales, y un precio sin cargar tiene que viajar como null —
+// pasarlo por Math.round lo convertiría en 0, que del lado del POS se
+// lee como "gratis". Ver el redondeo que ya tenía `precio_venta`.
+function precioEnBs(valor: number | null): number | null {
+  return valor === null ? null : Math.round(valor * 100) / 100;
+}
+
 interface FilaCatalogo {
   producto_id: string;
   costo: number | null;
   precio: number | null;
   stock_minimo: number | null;
+  fraccionable: boolean;
+  unidades_por_blister: number | null;
+  blisters_por_caja: number | null;
+  precio_blister: number | null;
+  precio_unidad: number | null;
   productos: {
     nombre: string;
     principio_activo: string | null;
@@ -57,6 +71,36 @@ interface FilaLote {
 // `contenido` (unidades por envase). Ver
 // 20260910000000_stock_en_unidades_individuales.sql.
 //
+// PRECIOS POR NIVEL (20260918000001). Una farmacia puede vender el mismo
+// producto en tres niveles —caja cerrada, blíster suelto, unidad suelta—
+// y los tres precios los fija el vendedor A MANO: NO son proporcionales
+// entre sí (llevarse la caja sale más barato por unidad que comprar
+// suelto). De ahí que este endpoint mande los tres por separado y que
+// pdvlat NO deba derivar ninguno multiplicando o dividiendo otro:
+//   * `precio_venta` sigue significando lo mismo de siempre —lo que se
+//     cobra por UNA unidad individual— y sigue siendo la única base de
+//     la cuenta cantidad × precio_venta. Lo que cambia es de dónde sale:
+//     si el producto es `fraccionable` y tiene `precio_unidad` cargado,
+//     ES ese precio real; si no (no fraccionable, o fraccionable pero
+//     sin precio de unidad todavía), se cae al cálculo de siempre,
+//     `precio / contenido`. O sea: todo producto que no usa la venta
+//     fraccionada se comporta exactamente igual que antes de esta
+//     función.
+//   * `precio_caja` es `productos_empresa.precio` tal cual, expuesto con
+//     nombre explícito. La caja siempre se puede vender, sea el producto
+//     fraccionable o no, así que solo es null si nunca se le cargó
+//     precio.
+//   * `precio_blister` es el precio del blíster entero, null si el
+//     producto no es fraccionable o si ese nivel no se cargó.
+// `unidades_por_blister` y `blisters_por_caja` van para que pdvlat sepa
+// cuántas unidades mete al carrito un botón "agregar 1 blíster" /
+// "agregar 1 caja": el precio lo toma de `precio_blister`/`precio_caja`
+// (el total de ese nivel, no un unitario), y la cantidad, de acá.
+//
+// Los precios van redondeados a 2 decimales —la precisión de la moneda,
+// el POS cobra en Bs— y preservan el null: un precio sin cargar viaja
+// como null y no como 0, que sería "regalado".
+//
 // El empresa_id NO se recibe por querystring: sale del api_key. Aceptarlo
 // como parámetro sería regalar un enumerador de catálogos ajenos (con
 // costo y precio adentro) a cualquiera que tenga una credencial válida.
@@ -89,7 +133,7 @@ export async function GET(request: Request) {
   let consulta = supabase
     .from("productos_empresa")
     .select(
-      "producto_id, costo, precio, stock_minimo, productos!inner(nombre, principio_activo, concentracion, forma, contenido, unidad, requiere_receta, controlado, categoria, fabricante, laboratorios(nombre), codigos_barra(codigo_norm, codigo_raw, es_principal, unidades_por_codigo))"
+      "producto_id, costo, precio, stock_minimo, fraccionable, unidades_por_blister, blisters_por_caja, precio_blister, precio_unidad, productos!inner(nombre, principio_activo, concentracion, forma, contenido, unidad, requiere_receta, controlado, categoria, fabricante, laboratorios(nombre), codigos_barra(codigo_norm, codigo_raw, es_principal, unidades_por_codigo))"
     )
     .eq("empresa_id", empresaId)
     .eq("activo", true)
@@ -203,17 +247,56 @@ export async function GET(request: Request) {
       // (es lo que se le paga al proveedor, y pdvlat no compra).
       costo: fila.costo,
       // Precio POR UNIDAD INDIVIDUAL (comprimido/ml/g, según `unidad`),
-      // no por envase: productos_empresa.precio es el precio de la caja y
-      // acá se divide por `contenido`. Es lo que hace que del lado de
-      // pdvlat la cuenta sea siempre cantidad × precio_venta, compre 1
-      // comprimido o la caja entera. Redondeado a 2 decimales, la
-      // precisión de la moneda: el POS cobra en Bs, un precio unitario
-      // con más decimales no se puede ni cobrar ni cuadrar contra el
-      // vuelto. Ver 20260910000000_stock_en_unidades_individuales.sql.
+      // no por envase: es lo que hace que del lado de pdvlat la cuenta
+      // sea siempre cantidad × precio_venta, compre 1 comprimido o la
+      // caja entera. Dos orígenes posibles, en este orden:
+      //   1) El precio de unidad suelta que el vendedor cargó a mano
+      //      (fraccionable + precio_unidad). Es el precio REAL del
+      //      mostrador y le gana a cualquier cálculo: vender suelto sale
+      //      más caro por unidad que la caja, y dividir lo perdería.
+      //   2) Si no hay ninguno —producto no fraccionable, o fraccionable
+      //      al que todavía no le cargaron ese nivel— se divide el precio
+      //      de la caja por `contenido`, exactamente como se hacía antes
+      //      de que existieran los precios por nivel. Este es el camino
+      //      de la enorme mayoría del catálogo y su resultado no cambió.
+      // Redondeado a 2 decimales, la precisión de la moneda: el POS cobra
+      // en Bs, un precio unitario con más decimales no se puede ni cobrar
+      // ni cuadrar contra el vuelto. Ver
+      // 20260910000000_stock_en_unidades_individuales.sql y
+      // 20260918000001_fraccionamiento_marca_y_lotes_manuales.sql.
       precio_venta:
-        fila.precio === null
-          ? null
-          : Math.round((fila.precio / unidadesPorEnvase) * 100) / 100,
+        fila.fraccionable && fila.precio_unidad !== null
+          ? precioEnBs(fila.precio_unidad)
+          : fila.precio === null
+            ? null
+            : precioEnBs(fila.precio / unidadesPorEnvase),
+      // Precio de la CAJA/envase completo (productos_empresa.precio), para
+      // que pdvlat pueda ofrecer "agregar caja entera" con SU total, sin
+      // multiplicar precio_venta × contenido: con precios por nivel esa
+      // multiplicación cobraría de más. La caja siempre se vende, sea el
+      // producto fraccionable o no.
+      precio_caja: precioEnBs(fila.precio),
+      // El resto del bloque de venta fraccionada. Todo se anula cuando
+      // `fraccionable` es false: ese flag es la única fuente de verdad de
+      // si el producto se vende en niveles, y mandar un desglose de
+      // blísteres de un producto que ya no se fracciona sería ofrecerle a
+      // pdvlat un botón que no debería existir.
+      fraccionable: fila.fraccionable,
+      // Total del BLÍSTER entero, no un unitario: null si el producto no
+      // se fracciona o si ese nivel no se cargó todavía (en cuyo caso
+      // pdvlat no ofrece el botón y vende por unidad o por caja).
+      precio_blister: fila.fraccionable
+        ? precioEnBs(fila.precio_blister)
+        : null,
+      // Cuántas unidades individuales suma al carrito un "agregar 1
+      // blíster" / "agregar 1 caja". La cantidad de la venta sigue
+      // viajando a /api/pdvlat/ventas en unidades individuales, siempre:
+      // estos dos números son el factor para llegar a ella, no una unidad
+      // de venta nueva.
+      unidades_por_blister: fila.fraccionable
+        ? fila.unidades_por_blister
+        : null,
+      blisters_por_caja: fila.fraccionable ? fila.blisters_por_caja : null,
       stock_minimo: fila.stock_minimo,
       // Existencia autoritativa de ahora (ver el comentario de arriba),
       // también en UNIDADES INDIVIDUALES: stock_actual_lote ya convierte
