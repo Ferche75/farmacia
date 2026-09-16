@@ -172,11 +172,25 @@ interface SucursalOpcion {
 // completa cuando llega su respuesta.
 interface StockSucursal {
   cargando: boolean;
-  /** Unidades individuales — stock_actual ya hace la conversión desde la
-   * foto en envases del conteo (ver 20260910000000). Puede tener
-   * decimales si productos.contenido los tiene. */
-  valor: number | null;
+  /** Unidades individuales que vienen de envases cerrados (ya convertidos
+   * por contenido, ver 20260910000000) MÁS las ventas y ajustes
+   * posteriores: un movimiento no se puede atribuir al picado, así que
+   * cae de este lado (ver 20260920000000). Puede tener decimales si
+   * productos.contenido los tiene. */
+  caja: number | null;
+  /** El picado del último conteo cerrado: unidades individuales que el
+   * operario contó sueltas de una caja ya abierta. */
+  sueltas: number | null;
   error: string | null;
+}
+
+// Lo mismo pero para la columna "Stock" de la lista. `total` viene del
+// RPC, no se suma acá: es el mismo número que ya publica pdvlat, y
+// caja + sueltas = total por construcción del lado de la base.
+interface StockDesglose {
+  caja: number;
+  sueltas: number;
+  total: number;
 }
 
 // stock_actual devuelve numeric: casi siempre entero, pero un
@@ -363,7 +377,7 @@ export function ProductosAbm({
   // unidades individuales y sumado sobre TODAS las sucursales/bodegas de
   // la empresa (ver el fetch). Es un mapa distinto de `stockPorSucursal`
   // de más abajo, que es el desglose por sucursal del modal de edición.
-  const [stockPorProducto, setStockPorProducto] = useState<Map<string, number>>(new Map());
+  const [stockPorProducto, setStockPorProducto] = useState<Map<string, StockDesglose>>(new Map());
   const [sucursales, setSucursales] = useState<SucursalOpcion[]>([]);
   const [buscando, setBuscando] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
@@ -482,10 +496,11 @@ export function ProductosAbm({
   }, [supabase, empresaId]);
 
   // Al abrir el modal de un producto QUE YA EXISTE, se pide el stock de
-  // cada sucursal en paralelo (un stock_actual por sucursal — no hay
-  // wrapper tipado para ese RPC en @farmacia/db porque nunca se llamó
-  // desde el panel; se usa .rpc() directo, igual que normalizar_codigo más
-  // abajo en este mismo archivo). Un producto nuevo todavía no tiene id ni
+  // cada sucursal en paralelo (un stock_actual_desglose por sucursal — no
+  // hay wrapper tipado para esta familia de RPC en @farmacia/db porque
+  // nunca se llamó desde el panel; se usa .rpc() directo, igual que
+  // normalizar_codigo más abajo en este mismo archivo, con la firma
+  // declarada en database.types.ts). Un producto nuevo no tiene id ni
   // stock del cual hablar, así que el efecto no hace nada.
   const productoEditandoId = form?.id;
 
@@ -528,17 +543,21 @@ export function ProductosAbm({
 
     for (const s of sucursales) {
       void supabase
-        .rpc("stock_actual", {
+        .rpc("stock_actual_desglose", {
           p_empresa_id: empresaId,
           p_producto_id: productoEditandoId,
           p_sucursal_id: s.id,
         })
         .then(({ data, error: rpcError }) => {
           if (cancelado) return;
+          // La función devuelve TABLE, así que PostgREST la serializa como
+          // array aunque siempre traiga exactamente una fila.
+          const fila = data?.[0];
           setStockPorSucursal((prev) =>
             new Map(prev).set(s.id, {
               cargando: false,
-              valor: rpcError ? null : Number(data ?? 0),
+              caja: rpcError ? null : Number(fila?.caja ?? 0),
+              sueltas: rpcError ? null : Number(fila?.sueltas ?? 0),
               error: rpcError ? rpcError.message : null,
             })
           );
@@ -565,9 +584,27 @@ export function ProductosAbm({
       });
       // El RPC ya devolvió el stock resultante: no hace falta volver a
       // preguntar por stock_actual.
-      setStockPorSucursal((prev) =>
-        new Map(prev).set(sucursalId, { cargando: false, valor: r.stock_nuevo, error: null })
-      );
+      //
+      // ajustar_stock no sabe de caja/sueltas — devuelve un TOTAL. El
+      // desglose se reconstruye con la misma regla que usa la base
+      // (20260920000000): un ajuste es un movimiento y los movimientos
+      // caen del lado de "caja", así que las sueltas quedan intactas (la
+      // corrección no dijo nada sobre el picado) y toda la diferencia va
+      // a caja. El updater es funcional a propósito: lee el `sueltas`
+      // vigente del mapa en vez de una copia capturada al abrir el
+      // formulario, que podría ser vieja.
+      setStockPorSucursal((prev) => {
+        // null = el desglose todavía no había llegado cuando se corrigió.
+        // Sin inventar un 0: el total entero se muestra como caja y las
+        // sueltas siguen desconocidas hasta la próxima lectura.
+        const sueltas = prev.get(sucursalId)?.sueltas ?? null;
+        return new Map(prev).set(sucursalId, {
+          cargando: false,
+          caja: r.stock_nuevo - (sueltas ?? 0),
+          sueltas,
+          error: null,
+        });
+      });
       const signo = r.delta >= 0 ? "+" : "";
       setAjusteOk(
         `Stock ajustado: ${formatearStock(r.stock_anterior)} → ${formatearStock(r.stock_nuevo)} (${signo}${r.delta})`
@@ -709,27 +746,35 @@ export function ProductosAbm({
       }
       setCamposExtraPorProducto(extraPorProducto);
 
-      // Stock de toda la página en UNA llamada: stock_actual_lote
-      // (20260908000000, reescrita en 20260910000000), la versión batch de
-      // la que usa el modal. Un stock_actual por fila serían 50
-      // round-trips por tecla del buscador — el mismo N+1 que ya se evitó
-      // en /api/pdvlat/catalogo, que llama a esta misma función.
+      // Stock de toda la página en UNA llamada: stock_actual_lote_desglose
+      // (20260920000000), la versión batch de la que usa el modal. Un RPC
+      // por fila serían 50 round-trips por tecla del buscador — el mismo
+      // N+1 que ya se evitó en /api/pdvlat/catalogo.
+      //
+      // `_desglose` y no stock_actual_lote pelado porque la columna
+      // muestra el picado aparte. El `total` que devuelve sale de llamar a
+      // stock_actual_lote adentro, así que es exactamente el mismo número
+      // que antes: el desglose se agrega, no reemplaza nada.
       //
       // p_sucursal_id: null a propósito — esta lista no está parada en
       // ninguna sucursal (el desglose por sucursal es cosa del modal), así
       // que se muestra el total de la empresa: sin sucursal, la función
       // agrega todos los ámbitos (sucursal/bodega).
       const { data: stockData } = idsVisibles.length
-        ? await supabase.rpc("stock_actual_lote", {
+        ? await supabase.rpc("stock_actual_lote_desglose", {
             p_empresa_id: empresaId,
             p_producto_ids: idsVisibles,
             p_sucursal_id: null,
           })
         : { data: [] };
 
-      const stockDeProducto = new Map<string, number>();
+      const stockDeProducto = new Map<string, StockDesglose>();
       for (const s of stockData ?? []) {
-        stockDeProducto.set(s.producto_id, Number(s.stock));
+        stockDeProducto.set(s.producto_id, {
+          caja: Number(s.caja),
+          sueltas: Number(s.sueltas),
+          total: Number(s.total),
+        });
       }
       setStockPorProducto(stockDeProducto);
 
@@ -1148,13 +1193,32 @@ export function ProductosAbm({
       case "stock": {
         // 0 es un dato REAL y hay que mostrarlo como 0: significa "no hay
         // existencia" (nunca se contó, o se vendió todo), no "no sé". El
-        // "—" queda solo como red de seguridad: stock_actual_lote devuelve
-        // una fila por producto pedido, incluidos los que no tienen
-        // ninguna historia, así que en la práctica no debería faltar
-        // ninguna.
-        const stock = stockPorProducto.get(p.id);
-        if (stock === undefined) return "—";
-        return <span className={stock > 0 ? "text-ink" : "text-muted"}>{formatearStock(stock)}</span>;
+        // "—" queda solo como red de seguridad: el RPC devuelve una fila
+        // por producto pedido, incluidos los que no tienen ninguna
+        // historia, así que en la práctica no debería faltar ninguna.
+        const st = stockPorProducto.get(p.id);
+        if (st === undefined) return "—";
+        // El número grande sigue siendo el TOTAL — es el que se compara
+        // contra cualquier otra pantalla. El "+N" en chico solo aparece
+        // cuando hay picado: la mayoría de los productos no tiene, y
+        // pintar "+0" en cada fila enterraría justo la señal de las pocas
+        // que sí. El detalle completo va en el title, que no ocupa alto de
+        // fila (esto es una tabla densa, no una tarjeta).
+        return (
+          <span
+            className={st.total > 0 ? "text-ink" : "text-muted"}
+            title={
+              st.sueltas > 0
+                ? `${formatearStock(st.caja)} de caja + ${formatearStock(st.sueltas)} sueltas (picado)`
+                : undefined
+            }
+          >
+            {formatearStock(st.total)}
+            {st.sueltas > 0 && (
+              <span className="ml-1 text-xs text-brand">+{formatearStock(st.sueltas)}</span>
+            )}
+          </span>
+        );
       }
       case "disponibleEn": {
         const disp = disponiblesPorProducto.get(p.id);
@@ -1796,7 +1860,20 @@ export function ProductosAbm({
                           ) : st.error ? (
                             <span className="text-danger">no se pudo leer</span>
                           ) : (
-                            <span className="font-medium text-ink">{formatearStock(st.valor ?? 0)}</span>
+                            // "140 + 10 sueltas": el picado se muestra
+                            // aparte porque son unidades que el operario
+                            // contó flojas, no una caja cerrada. El
+                            // sufijo solo aparece si hay algo que decir —
+                            // con sueltas en 0 (o todavía desconocidas
+                            // tras un ajuste) queda el número de siempre.
+                            <span className="font-medium text-ink">
+                              {formatearStock(st.caja ?? 0)}
+                              {(st.sueltas ?? 0) > 0 && (
+                                <span className="ml-1 font-normal text-brand">
+                                  + {formatearStock(st.sueltas ?? 0)} sueltas
+                                </span>
+                              )}
+                            </span>
                           )}
                           <button
                             type="button"
@@ -1808,7 +1885,14 @@ export function ProductosAbm({
                                 return;
                               }
                               setAjusteAbierto(s.id);
-                              setAjusteCantidad(st?.valor != null ? String(Math.round(st.valor)) : "");
+                              // Se precarga el TOTAL, no la caja: quien
+                              // corrige está mirando el pilón físico
+                              // entero en el estante, no pensando en la
+                              // división caja/picado. ajustar_stock
+                              // también recibe un total.
+                              setAjusteCantidad(
+                                st?.caja != null ? String(Math.round(st.caja + (st.sueltas ?? 0))) : ""
+                              );
                               setAjusteMotivo("");
                             }}
                             className="font-medium text-brand hover:underline"

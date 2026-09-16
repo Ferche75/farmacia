@@ -970,6 +970,29 @@ export interface Database {
         };
         Returns: { producto_id: string; stock: number }[];
       };
+      // ── Desglose caja / sueltas del mismo stock ────────────────
+      // (supabase/migrations/20260920000000_desglose_caja_sueltas_del_stock.sql)
+      /** El mismo número de stock_actual, partido para mostrarlo:
+       * `sueltas` es el picado del último conteo cerrado y `caja` todo el
+       * resto (envases + ventas y ajustes posteriores). `caja + sueltas`
+       * siempre da `total`, porque caja se deriva de la resta.
+       * Devuelve UNA fila, pero llega como array: PostgREST serializa así
+       * toda función que retorna TABLE. */
+      stock_actual_desglose: {
+        Args: { p_empresa_id: string; p_producto_id: string; p_sucursal_id?: string | null };
+        Returns: { caja: number; sueltas: number; total: number }[];
+      };
+      /** Versión batch de stock_actual_desglose, una fila por producto
+       * pedido (0/0/0 para los que no tienen historia). La usa la columna
+       * "Stock" de la lista de productos del panel. */
+      stock_actual_lote_desglose: {
+        Args: {
+          p_empresa_id: string;
+          p_producto_ids: string[];
+          p_sucursal_id?: string | null;
+        };
+        Returns: { producto_id: string; caja: number; sueltas: number; total: number }[];
+      };
       /** Solo service_role (EXECUTE revocado a anon/authenticated) — se
        * llama desde apps/admin/app/api/pdvlat/ventas, nunca del browser.
        * p_lineas[].cantidad en UNIDADES INDIVIDUALES, no en envases
