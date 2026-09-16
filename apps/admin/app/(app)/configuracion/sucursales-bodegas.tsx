@@ -81,6 +81,7 @@ function SeccionSucursales({
   router: Router;
 }) {
   const [abierto, setAbierto] = useState(false);
+  const [editando, setEditando] = useState<Sucursal | null>(null);
   const [nombre, setNombre] = useState("");
   const [direccion, setDireccion] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -107,6 +108,21 @@ function SeccionSucursales({
 
   async function toggleActivo(s: Sucursal) {
     await supabase.from("sucursales").update({ activo: !s.activo }).eq("id", s.id);
+    router.refresh();
+  }
+
+  // El update va directo contra la tabla igual que el alta: la policy
+  // sucursales_update_propia_empresa (20260813000002) es por fila, no por
+  // columna — ya autoriza a admin/gerente a tocar cualquier campo de una
+  // sucursal de su empresa, así que nombre/dirección entran sin agregar
+  // nada nuevo.
+  async function guardarEdicion(s: Sucursal, cambios: { nombre: string; direccion: string | null }) {
+    const { error: err } = await supabase
+      .from("sucursales")
+      .update({ nombre: cambios.nombre, direccion: cambios.direccion })
+      .eq("id", s.id);
+    if (err) throw err;
+    setEditando(null);
     router.refresh();
   }
 
@@ -144,12 +160,20 @@ function SeccionSucursales({
                   <EstadoActivo activo={s.activo} />
                 </td>
                 <td className="px-4 py-2.5 text-right">
-                  <button
-                    onClick={() => toggleActivo(s)}
-                    className="whitespace-nowrap font-medium text-brand hover:underline"
-                  >
-                    {s.activo ? "Desactivar" : "Activar"}
-                  </button>
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      onClick={() => setEditando(s)}
+                      className="whitespace-nowrap font-medium text-brand hover:underline"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => toggleActivo(s)}
+                      className="whitespace-nowrap font-medium text-brand hover:underline"
+                    >
+                      {s.activo ? "Desactivar" : "Activar"}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -205,6 +229,18 @@ function SeccionSucursales({
           </div>
         </div>
       )}
+
+      {editando && (
+        <ModalEditar
+          key={editando.id}
+          titulo="Editar sucursal"
+          nombreInicial={editando.nombre}
+          direccionInicial={editando.direccion ?? ""}
+          conDireccion
+          onGuardar={(cambios) => guardarEdicion(editando, cambios)}
+          onCerrar={() => setEditando(null)}
+        />
+      )}
     </div>
   );
 }
@@ -223,6 +259,7 @@ function SeccionBodegas({
   router: Router;
 }) {
   const [abierto, setAbierto] = useState(false);
+  const [editando, setEditando] = useState<Bodega | null>(null);
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? "");
   const [nombre, setNombre] = useState("");
   const [guardando, setGuardando] = useState(false);
@@ -250,6 +287,18 @@ function SeccionBodegas({
 
   async function toggleActivo(b: Bodega) {
     await supabase.from("bodegas").update({ activo: !b.activo }).eq("id", b.id);
+    router.refresh();
+  }
+
+  // Solo el nombre: la bodega no tiene dirección (cuelga de la sucursal),
+  // y la sucursal a la que pertenece NO se edita acá a propósito —
+  // moverla de sucursal arrastraría lotes/movimientos ya cargados, que es
+  // otra operación, no un renombre. Cubierto por
+  // bodegas_update_propia_empresa (20260813000002), que es por fila.
+  async function guardarEdicion(b: Bodega, cambios: { nombre: string }) {
+    const { error: err } = await supabase.from("bodegas").update({ nombre: cambios.nombre }).eq("id", b.id);
+    if (err) throw err;
+    setEditando(null);
     router.refresh();
   }
 
@@ -288,12 +337,20 @@ function SeccionBodegas({
                   <EstadoActivo activo={b.activo} />
                 </td>
                 <td className="px-4 py-2.5 text-right">
-                  <button
-                    onClick={() => toggleActivo(b)}
-                    className="whitespace-nowrap font-medium text-brand hover:underline"
-                  >
-                    {b.activo ? "Desactivar" : "Activar"}
-                  </button>
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      onClick={() => setEditando(b)}
+                      className="whitespace-nowrap font-medium text-brand hover:underline"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => toggleActivo(b)}
+                      className="whitespace-nowrap font-medium text-brand hover:underline"
+                    >
+                      {b.activo ? "Desactivar" : "Activar"}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -360,6 +417,111 @@ function SeccionBodegas({
           </div>
         </div>
       )}
+
+      {editando && (
+        <ModalEditar
+          key={editando.id}
+          titulo="Editar bodega"
+          nombreInicial={editando.nombre}
+          onGuardar={(cambios) => guardarEdicion(editando, { nombre: cambios.nombre })}
+          onCerrar={() => setEditando(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Segundo modal, compartido por las dos secciones, con el MISMO chrome
+// que los de alta (overlay ink/40, tarjeta max-w-sm, botón primario +
+// "Cancelar" al lado) para que no parezca otra pantalla — mismo criterio
+// que EditarOperario en empleados.tsx. Lo que cambia entre sucursal y
+// bodega es solo si hay campo dirección, así que va por prop y no en dos
+// componentes calcados.
+//
+// El update concreto lo arma cada sección y llega por `onGuardar`: la
+// tabla queda literal en el `.from(...)` de cada una en vez de viajar
+// como string, que es lo que mantiene tipado el update del cliente de
+// Supabase.
+//
+// Lo que NO hay acá, ni va a haber, es borrado físico: sucursales y
+// bodegas tienen FKs colgando (lotes, conteos, movimientos_stock,
+// perfiles_sucursal), y permitir DELETE desde la UI abriría la puerta a
+// un ON DELETE CASCADE en cadena disparado por un click — un radio de
+// explosión que ninguna de estas pantallas necesita cubrir (el mismo
+// motivo ya escrito en el encabezado de 20260806000009_superadmin_rls.sql).
+// Desactivar ya cubre el "dejá de usar esto".
+function ModalEditar({
+  titulo,
+  nombreInicial,
+  conDireccion = false,
+  direccionInicial = "",
+  onGuardar,
+  onCerrar,
+}: {
+  titulo: string;
+  nombreInicial: string;
+  conDireccion?: boolean;
+  direccionInicial?: string;
+  onGuardar: (cambios: { nombre: string; direccion: string | null }) => Promise<void>;
+  onCerrar: () => void;
+}) {
+  const [nombre, setNombre] = useState(nombreInicial);
+  const [direccion, setDireccion] = useState(direccionInicial);
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function guardar() {
+    setGuardando(true);
+    setError(null);
+    try {
+      await onGuardar({ nombre: nombre.trim(), direccion: direccion.trim() || null });
+      // Si salió bien, el padre ya cerró el modal (setEditando(null)) y
+      // refrescó: no tocamos más estado acá, este componente ya no está.
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudieron guardar los cambios.");
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-ink/40 p-6">
+      <div className="w-full max-w-sm rounded-lg bg-surface p-6 shadow-xl">
+        <h2 className="mb-4 text-lg font-semibold text-ink">{titulo}</h2>
+
+        {error && (
+          <p className="mb-4 rounded-md border border-danger/20 bg-danger-soft px-3 py-2 text-sm text-danger">
+            {error}
+          </p>
+        )}
+
+        <label className="mb-1.5 block text-sm font-medium text-ink">Nombre *</label>
+        <input
+          value={nombre}
+          onChange={(e) => setNombre(e.target.value)}
+          className={conDireccion ? "input mb-3" : "input mb-5"}
+          autoFocus
+        />
+
+        {conDireccion && (
+          <>
+            <label className="mb-1.5 block text-sm font-medium text-ink">Dirección</label>
+            <input value={direccion} onChange={(e) => setDireccion(e.target.value)} className="input mb-5" />
+          </>
+        )}
+
+        <div className="flex gap-3">
+          <button
+            onClick={guardar}
+            disabled={guardando || !nombre.trim()}
+            className="rounded-md bg-brand px-3 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {guardando ? "Guardando…" : "Guardar"}
+          </button>
+          <button type="button" onClick={onCerrar} className="text-sm text-muted hover:text-ink">
+            Cancelar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
