@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDownUp,
   Calendar,
-  CircleCheckBig,
   EllipsisVertical,
   Package,
   Pencil,
@@ -311,17 +310,6 @@ export function PantallaConteo({
   function onChangeInput() {
     limpiarTimeout();
     timeoutRef.current = setTimeout(procesarValorDelInput, IDLE_MS);
-  }
-
-  // "Confirmar y seguir" NO escribe nada: el escaneo ya se contó en el
-  // momento en que se leyó el código (esta pantalla es y sigue siendo
-  // scan-driven, sin paso de confirmación). Es solo "ya miré esto, dame
-  // el próximo": limpia la tarjeta y devuelve el foco al lector.
-  function confirmarYSeguir() {
-    setFeedback(null);
-    setPicadoAbierto(false);
-    setEditando(null);
-    reenfocar();
   }
 
   async function onDeshacer() {
@@ -942,15 +930,6 @@ export function PantallaConteo({
           Sin código de barras
         </button>
       </div>
-
-      <button
-        onClick={confirmarYSeguir}
-        disabled={cargandoProducto}
-        className="mb-2.5 flex w-full items-center justify-center gap-2 rounded-full bg-brand px-4 py-3.5 text-base font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-      >
-        <CircleCheckBig size={19} aria-hidden />
-        Confirmar y seguir
-      </button>
 
       <button
         onClick={abrirConfirmacionCierre}
