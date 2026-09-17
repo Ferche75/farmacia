@@ -756,6 +756,10 @@ export interface Database {
            * invitación la exige. */
           sucursal_id: string | null;
           bodega_id: string | null;
+          /** Última llamada real autenticada con esta credencial (20260926000000)
+           * — la distingue de vinculado_at, que solo se pone una vez al canjear
+           * el código. Null = todavía no llegó ninguna llamada de pdvlat. */
+          ultima_actividad_at: string | null;
           activo: boolean;
           created_at: string;
           updated_at: string;
@@ -771,6 +775,7 @@ export interface Database {
           vinculado_at?: string | null;
           sucursal_id?: string | null;
           bodega_id?: string | null;
+          ultima_actividad_at?: string | null;
           activo?: boolean;
           created_at?: string;
           updated_at?: string;

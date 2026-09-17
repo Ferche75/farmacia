@@ -147,7 +147,7 @@ export default async function ConfiguracionPage() {
   const { data: integracion, error: errorIntegracion } = await supabase
     .from("integraciones_pdv")
     .select(
-      "codigo_invitacion, codigo_expira_at, tenant_id_pdvlat, vinculado_at, sucursal_id, bodega_id"
+      "codigo_invitacion, codigo_expira_at, tenant_id_pdvlat, vinculado_at, sucursal_id, bodega_id, ultima_actividad_at"
     )
     .eq("empresa_id", perfil.empresaId)
     .maybeSingle();
@@ -163,6 +163,7 @@ export default async function ConfiguracionPage() {
     codigoExpiraAt: integracion?.codigo_expira_at ?? null,
     sucursalId: integracion?.sucursal_id ?? null,
     bodegaId: integracion?.bodega_id ?? null,
+    ultimaActividadAt: integracion?.ultima_actividad_at ?? null,
   };
 
   return (
@@ -215,13 +216,14 @@ export default async function ConfiguracionPage() {
           titulo="Vinculación con pdvlat"
           descripcion="Un solo código conecta TODA tu empresa con pdvlat — no hace falta un código por sucursal. Conectá tu sistema de caja para que descuente el stock apenas vende, sin esperar al próximo conteo. El catálogo lo sigue mandando Farmacia."
         >
-          {/* Se reusan las mismas listas que la sección "Sucursales y
-              bodegas" — ya vienen cargadas y el selector solo ofrece las
-              activas (el RPC rechaza las inactivas de todas formas). */}
+          {/* Se reusa la misma lista que la sección "Sucursales y bodegas"
+              — ya viene cargada. Solo para saber si hay alguna sucursal
+              activa (si no, ni se muestra el botón de generar código);
+              cuál se usa de destino por defecto ya no se elige acá, ver
+              integracion-pdv.tsx. */}
           <IntegracionPdv
             estado={estadoIntegracion}
             sucursales={(sucursales ?? []).filter((s) => s.activo)}
-            bodegas={(bodegas ?? []).filter((b) => b.activo)}
           />
         </Seccion>
       </div>

@@ -16,16 +16,16 @@ export interface EstadoIntegracionPdv {
   /** null solo en integraciones anteriores a 20260907000000. */
   sucursalId: string | null;
   bodegaId: string | null;
+  /** Última vez que pdvlat autenticó una llamada real con esta credencial
+   * (20260926000000) — no cuándo se canjeó el código. Null = el código se
+   * canjeó pero todavía no llegó ninguna llamada real. Es la confirmación
+   * CRUZADA de que la vinculación está viva de los dos lados, no solo un
+   * flag que puso Farmacia una vez. */
+  ultimaActividadAt: string | null;
 }
 
 interface SucursalOpcion {
   id: string;
-  nombre: string;
-}
-
-interface BodegaOpcion {
-  id: string;
-  sucursal_id: string;
   nombre: string;
 }
 
@@ -45,19 +45,13 @@ function formatearCodigo(codigo: string): string {
 export function IntegracionPdv({
   estado: estadoInicial,
   sucursales,
-  bodegas,
 }: {
   estado: EstadoIntegracionPdv;
   sucursales: SucursalOpcion[];
-  bodegas: BodegaOpcion[];
 }) {
   const [estado, setEstado] = useState(estadoInicial);
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const nombreSucursal = (id: string | null) =>
-    sucursales.find((s) => s.id === id)?.nombre ?? null;
-  const nombreBodega = (id: string | null) => bodegas.find((b) => b.id === id)?.nombre ?? null;
 
   const vencido =
     estado.codigoExpiraAt !== null && new Date(estado.codigoExpiraAt) <= new Date();
@@ -91,6 +85,10 @@ export function IntegracionPdv({
         codigoExpiraAt: resultado.codigo_expira_at,
         sucursalId: resultado.sucursal_id,
         bodegaId: resultado.bodega_id,
+        // El RPC de generar código no toca esto (solo autenticarPdv lo
+        // hace, en una llamada real de pdvlat) — se preserva tal cual
+        // estaba, igual que vinculadoAt.
+        ultimaActividadAt: estado.ultimaActividadAt,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo generar el código.");
@@ -119,15 +117,26 @@ export function IntegracionPdv({
         )}
       </p>
 
-      {estado.vinculado && nombreSucursal(estado.sucursalId) ? (
-        <p className="mt-1.5 text-sm text-muted">
-          Descuenta stock de <span className="font-medium text-ink">{nombreSucursal(estado.sucursalId)}</span>
-          {nombreBodega(estado.bodegaId) ? (
+      {/* Confirmación CRUZADA (20260926000000): "Vinculado" de arriba solo
+          dice que alguien canjeó un código alguna vez — esto dice si
+          pdvlat está usando de verdad la credencial. Un punto verde con
+          fecha reciente es la única prueba real de que los dos lados están
+          hablando; sin actividad todavía es una señal legítima de que algo
+          quedó mal configurado del otro lado. */}
+      {estado.vinculado ? (
+        <p className="mt-1.5 flex items-center gap-1.5 text-sm text-muted">
+          {estado.ultimaActividadAt ? (
             <>
-              , bodega <span className="font-medium text-ink">{nombreBodega(estado.bodegaId)}</span>
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ok" aria-hidden />
+              pdvlat contactó por última vez el{" "}
+              <span className="font-medium text-ink">{formatearFecha(estado.ultimaActividadAt)}</span>.
             </>
-          ) : null}
-          .
+          ) : (
+            <>
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted" aria-hidden />
+              Todavía no recibimos ninguna llamada de pdvlat con esta credencial.
+            </>
+          )}
         </p>
       ) : null}
 

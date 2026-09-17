@@ -66,6 +66,18 @@ export async function autenticarPdv(
 
   if (!secretosIguales(apiSecret, data.api_secret)) return { respuesta: noAutorizado };
 
+  // Marca de actividad real (20260926000000): esto es lo único que puede
+  // decir "pdvlat está usando esta credencial de verdad" en vez de "en
+  // algún momento se canjeó un código". No se chequea el resultado —es
+  // contabilidad best-effort, un error acá no tiene que tumbar la llamada
+  // real que sí importa (/catalogo, /ventas, /auth-empleado)— pero sí se
+  // espera (`await`), porque en un route handler serverless una promesa
+  // sin esperar puede no llegar a terminar antes de que la función corte.
+  await supabase
+    .from("integraciones_pdv")
+    .update({ ultima_actividad_at: new Date().toISOString() })
+    .eq("id", data.id);
+
   return {
     integracion: {
       id: data.id,
