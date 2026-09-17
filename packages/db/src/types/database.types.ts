@@ -1138,6 +1138,23 @@ export interface Database {
         };
         Returns: Json;
       };
+      // ── Eliminar sucursales / bodegas ──────────────────────────
+      // (supabase/migrations/20260927000000_eliminar_sucursal_y_bodega.sql)
+      /** Borrado FÍSICO, no el toggle `activo`. Chequea historia antes
+       * (conteos, movimientos_stock, lotes, integraciones_pdv — de la
+       * sucursal Y de sus bodegas) y tira excepción con un mensaje
+       * mostrable si encuentra algo. admin/gerente/superadmin, propia
+       * empresa. */
+      eliminar_sucursal: {
+        Args: { p_sucursal_id: string };
+        Returns: Json;
+      };
+      /** Igual pero por bodega: conteos, movimientos_stock, lotes e
+       * integraciones_pdv por bodega_id. */
+      eliminar_bodega: {
+        Args: { p_bodega_id: string };
+        Returns: Json;
+      };
       actualizar_usuario_superadmin: {
         Args: {
           p_perfil_id: string;

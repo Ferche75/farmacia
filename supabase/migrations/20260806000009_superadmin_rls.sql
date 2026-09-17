@@ -10,6 +10,17 @@
 -- cadena (empresas → sucursales → conteos → ...) disparado por un click,
 -- que es un radio de explosión que ninguna pantalla de superadmin necesita
 -- cubrir todavía.
+--
+-- ACTUALIZACIÓN (20260927000000_eliminar_sucursal_y_bodega.sql): sucursales
+-- (y bodegas) SÍ tienen hoy un borrado físico, pero sigue sin haber policy
+-- de DELETE acá — el único camino es el RPC eliminar_sucursal, SECURITY
+-- DEFINER, que antes de borrar chequea explícitamente que no haya historia
+-- (conteos, movimientos_stock, lotes, integraciones_pdv, ni en la sucursal
+-- ni en sus bodegas) y se niega con un mensaje claro si la hay. El párrafo
+-- de arriba sigue describiendo bien por qué RLS no abre DELETE a secas: el
+-- cascade en cadena es real, por eso el borrado está detrás de un chequeo y
+-- no de una policy. empresas/perfiles siguen sin borrado físico de ningún
+-- tipo.
 
 create policy empresas_insert on empresas
   for insert

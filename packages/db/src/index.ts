@@ -41,6 +41,8 @@ export {
   generarCodigoInvitacionPdv,
   ajustarStock,
   reportarEstadoDispositivo,
+  eliminarSucursal,
+  eliminarBodega,
 } from "./rpc";
 export type {
   ProductoEncontrado,
@@ -71,4 +73,6 @@ export type {
   DatosCompletitudCatalogo,
   CodigoInvitacionPdv,
   ResultadoAjusteStock,
+  ResultadoEliminarSucursal,
+  ResultadoEliminarBodega,
 } from "./rpc";

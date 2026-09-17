@@ -36,3 +36,12 @@ create policy bodegas_update on bodegas
 -- Sin policy de DELETE, mismo criterio que empresas/sucursales/perfiles
 -- (20260806000009_superadmin_rls.sql): soft-delete vía `activo`, nunca
 -- borrado físico desde la UI.
+--
+-- ACTUALIZACIÓN (20260927000000_eliminar_sucursal_y_bodega.sql): existe hoy
+-- un borrado físico de bodegas, pero esta tabla sigue sin policy de DELETE
+-- — el único camino es el RPC eliminar_bodega, SECURITY DEFINER, que
+-- chequea que la bodega no tenga conteos, movimientos_stock, lotes ni
+-- integraciones_pdv antes de borrarla (las cuatro FKs que la apuntan son
+-- `on delete restrict`, así que Postgres también lo frenaría; el chequeo
+-- explícito está para dar un mensaje en castellano en vez de un 23503).
+-- Desactivar sigue siendo lo correcto en cuanto la bodega tenga historia.

@@ -892,3 +892,66 @@ export async function reportarEstadoDispositivo(
 
   if (error) throw error;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Eliminar sucursales / bodegas
+// ═══════════════════════════════════════════════════════════════
+// (supabase/migrations/20260927000000_eliminar_sucursal_y_bodega.sql)
+
+export interface ResultadoEliminarSucursal {
+  sucursal_id: string;
+  eliminada: boolean;
+}
+
+export interface ResultadoEliminarBodega {
+  bodega_id: string;
+  eliminada: boolean;
+}
+
+/** Borrado FÍSICO de una sucursal — no es el toggle `activo`.
+ *
+ * Solo procede si la sucursal no tiene historia (conteos, movimientos de
+ * stock, lotes/vencimientos, integración con pdvlat) Y ninguna de sus
+ * bodegas tampoco. Si algo de eso existe, el RPC tira una excepción con un
+ * mensaje que nombra exactamente qué se encontró y sugiere desactivar; ese
+ * texto es apto para mostrarle tal cual a quien apretó el botón.
+ *
+ * Lo que sí se lleva puesto cuando procede es solo configuración: las
+ * asignaciones de operarios, las bodegas (ya confirmadas vacías), la
+ * disponibilidad por sucursal, y deja en null la referencia de
+ * importaciones viejas.
+ *
+ * Solo admin/gerente/superadmin, acotado a la propia empresa (el RPC lo
+ * deriva de la fila, no se pasa empresa_id). */
+export async function eliminarSucursal(
+  supabase: SupabaseClient<Database>,
+  sucursalId: string
+): Promise<ResultadoEliminarSucursal> {
+  const { data, error } = await supabase.rpc("eliminar_sucursal", {
+    p_sucursal_id: sucursalId,
+  });
+
+  if (error) throw error;
+  return data as unknown as ResultadoEliminarSucursal;
+}
+
+/** Borrado FÍSICO de una bodega — no es el toggle `activo`.
+ *
+ * Igual que eliminarSucursal pero más acotado: falla si la bodega tiene
+ * conteos, movimientos de stock, lotes o una integración con pdvlat. (Las
+ * cuatro FKs son `on delete restrict`, así que Postgres también lo
+ * frenaría; el RPC chequea antes para devolver un mensaje legible en vez
+ * de un error crudo de constraint.)
+ *
+ * Solo admin/gerente/superadmin, acotado a la propia empresa. */
+export async function eliminarBodega(
+  supabase: SupabaseClient<Database>,
+  bodegaId: string
+): Promise<ResultadoEliminarBodega> {
+  const { data, error } = await supabase.rpc("eliminar_bodega", {
+    p_bodega_id: bodegaId,
+  });
+
+  if (error) throw error;
+  return data as unknown as ResultadoEliminarBodega;
+}

@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createBrowserClient } from "@farmacia/db";
+import { Ban, CircleCheckBig, Pencil, Trash2 } from "lucide-react";
+import { createBrowserClient, eliminarBodega, eliminarSucursal } from "@farmacia/db";
 
 interface Sucursal {
   id: string;
@@ -55,6 +56,18 @@ type Router = ReturnType<typeof useRouter>;
 const CLASE_BOTON_AGREGAR =
   "shrink-0 whitespace-nowrap rounded-md border border-line px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-paper";
 
+// Los tres botones de la columna de acciones son solo íconos: sin borde ni
+// fondo, gris apagado, y el color recién aparece al pasar por encima —
+// distinto por acción (neutro para editar, ok/warn según hacia dónde va el
+// toggle, danger para eliminar). El `size={16}` y el `p-1` son los mismos
+// que ya usan los botones de ícono de apps/conteo, para que no haya dos
+// escalas distintas de lo mismo en el monorepo.
+const CLASE_BOTON_ICONO = "p-1 transition-colors";
+const CLASE_ICONO_EDITAR = `${CLASE_BOTON_ICONO} text-muted hover:text-ink`;
+const CLASE_ICONO_DESACTIVAR = `${CLASE_BOTON_ICONO} text-muted hover:text-warn`;
+const CLASE_ICONO_ACTIVAR = `${CLASE_BOTON_ICONO} text-muted hover:text-ok`;
+const CLASE_ICONO_ELIMINAR = `${CLASE_BOTON_ICONO} text-muted hover:text-danger`;
+
 function EstadoActivo({ activo }: { activo: boolean }) {
   return activo ? (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-ok">
@@ -85,6 +98,7 @@ function SeccionSucursales({
   const [nombre, setNombre] = useState("");
   const [direccion, setDireccion] = useState("");
   const [guardando, setGuardando] = useState(false);
+  const [eliminandoId, setEliminandoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function crear() {
@@ -109,6 +123,29 @@ function SeccionSucursales({
   async function toggleActivo(s: Sucursal) {
     await supabase.from("sucursales").update({ activo: !s.activo }).eq("id", s.id);
     router.refresh();
+  }
+
+  // Borrado físico, vía RPC (20260927000000): nunca un .delete() directo
+  // contra la tabla. El RPC es el que sabe si esta sucursal —o alguna de
+  // sus bodegas— tiene historia colgando, y si la tiene tira una excepción
+  // con un mensaje ya redactado para mostrar tal cual. Por eso el `catch`
+  // prioriza `e.message` igual que crear(): ese texto ES la explicación.
+  //
+  // El window.confirm alcanza: la acción ya está protegida del otro lado
+  // (no puede borrar nada con historia), así que esto es el "¿seguro?" de
+  // un tirón, no un flujo de confirmación con su propio modal.
+  async function eliminar(s: Sucursal) {
+    if (!window.confirm(`¿Eliminar la sucursal «${s.nombre}»? Esta acción no se puede deshacer.`)) return;
+    setEliminandoId(s.id);
+    setError(null);
+    try {
+      await eliminarSucursal(supabase, s.id);
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo eliminar la sucursal.");
+    } finally {
+      setEliminandoId(null);
+    }
   }
 
   // El update va directo contra la tabla igual que el alta: la policy
@@ -141,6 +178,17 @@ function SeccionSucursales({
         </button>
       </div>
 
+      {/* El mismo `error` que usa el modal de alta, pero mostrado acá
+          arriba cuando el modal está cerrado: el "Eliminar" se dispara
+          desde una fila de la tabla, así que su mensaje (que es el que
+          explica por qué NO se pudo borrar) no tiene dónde aparecer si
+          vive solo adentro del modal. */}
+      {error && !abierto && (
+        <p className="mb-3 rounded-md border border-danger/20 bg-danger-soft px-3 py-2 text-sm text-danger">
+          {error}
+        </p>
+      )}
+
       <div className="overflow-x-auto rounded-lg border border-line">
         <table className="w-full text-sm">
           <thead>
@@ -160,18 +208,34 @@ function SeccionSucursales({
                   <EstadoActivo activo={s.activo} />
                 </td>
                 <td className="px-4 py-2.5 text-right">
-                  <div className="flex items-center justify-end gap-3">
+                  <div className="flex items-center justify-end gap-1">
                     <button
                       onClick={() => setEditando(s)}
-                      className="whitespace-nowrap font-medium text-brand hover:underline"
+                      aria-label={`Editar ${s.nombre}`}
+                      title={`Editar ${s.nombre}`}
+                      className={CLASE_ICONO_EDITAR}
                     >
-                      Editar
+                      <Pencil size={16} aria-hidden />
                     </button>
+                    {/* Un solo botón para el toggle: el ícono dice en qué
+                        estado está HOY (check = activa, prohibido =
+                        inactiva) y tocarlo lo da vuelta. */}
                     <button
                       onClick={() => toggleActivo(s)}
-                      className="whitespace-nowrap font-medium text-brand hover:underline"
+                      aria-label={s.activo ? `Desactivar ${s.nombre}` : `Activar ${s.nombre}`}
+                      title={s.activo ? `Desactivar ${s.nombre}` : `Activar ${s.nombre}`}
+                      className={s.activo ? CLASE_ICONO_DESACTIVAR : CLASE_ICONO_ACTIVAR}
                     >
-                      {s.activo ? "Desactivar" : "Activar"}
+                      {s.activo ? <CircleCheckBig size={16} aria-hidden /> : <Ban size={16} aria-hidden />}
+                    </button>
+                    <button
+                      onClick={() => eliminar(s)}
+                      disabled={eliminandoId === s.id}
+                      aria-label={`Eliminar ${s.nombre}`}
+                      title={`Eliminar ${s.nombre}`}
+                      className={`${CLASE_ICONO_ELIMINAR} disabled:opacity-50`}
+                    >
+                      <Trash2 size={16} aria-hidden />
                     </button>
                   </div>
                 </td>
@@ -263,6 +327,7 @@ function SeccionBodegas({
   const [sucursalId, setSucursalId] = useState(sucursales[0]?.id ?? "");
   const [nombre, setNombre] = useState("");
   const [guardando, setGuardando] = useState(false);
+  const [eliminandoId, setEliminandoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const nombreSucursal = (id: string) => sucursales.find((s) => s.id === id)?.nombre ?? "—";
@@ -288,6 +353,25 @@ function SeccionBodegas({
   async function toggleActivo(b: Bodega) {
     await supabase.from("bodegas").update({ activo: !b.activo }).eq("id", b.id);
     router.refresh();
+  }
+
+  // Mismo criterio que el eliminar de sucursales: RPC (20260927000000),
+  // nunca .delete() directo. Para bodegas las cuatro FKs que las apuntan
+  // ya son `on delete restrict` —Postgres solo tampoco dejaría perder
+  // nada—, pero el RPC chequea antes para que el mensaje sea una frase y
+  // no un error de constraint.
+  async function eliminar(b: Bodega) {
+    if (!window.confirm(`¿Eliminar la bodega «${b.nombre}»? Esta acción no se puede deshacer.`)) return;
+    setEliminandoId(b.id);
+    setError(null);
+    try {
+      await eliminarBodega(supabase, b.id);
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo eliminar la bodega.");
+    } finally {
+      setEliminandoId(null);
+    }
   }
 
   // Solo el nombre: la bodega no tiene dirección (cuelga de la sucursal),
@@ -318,6 +402,14 @@ function SeccionBodegas({
         </button>
       </div>
 
+      {/* Ver la nota equivalente en SeccionSucursales: el error del
+          Eliminar necesita vivir fuera del modal de alta. */}
+      {error && !abierto && (
+        <p className="mb-3 rounded-md border border-danger/20 bg-danger-soft px-3 py-2 text-sm text-danger">
+          {error}
+        </p>
+      )}
+
       <div className="overflow-x-auto rounded-lg border border-line">
         <table className="w-full text-sm">
           <thead>
@@ -337,18 +429,31 @@ function SeccionBodegas({
                   <EstadoActivo activo={b.activo} />
                 </td>
                 <td className="px-4 py-2.5 text-right">
-                  <div className="flex items-center justify-end gap-3">
+                  <div className="flex items-center justify-end gap-1">
                     <button
                       onClick={() => setEditando(b)}
-                      className="whitespace-nowrap font-medium text-brand hover:underline"
+                      aria-label={`Editar ${b.nombre}`}
+                      title={`Editar ${b.nombre}`}
+                      className={CLASE_ICONO_EDITAR}
                     >
-                      Editar
+                      <Pencil size={16} aria-hidden />
                     </button>
                     <button
                       onClick={() => toggleActivo(b)}
-                      className="whitespace-nowrap font-medium text-brand hover:underline"
+                      aria-label={b.activo ? `Desactivar ${b.nombre}` : `Activar ${b.nombre}`}
+                      title={b.activo ? `Desactivar ${b.nombre}` : `Activar ${b.nombre}`}
+                      className={b.activo ? CLASE_ICONO_DESACTIVAR : CLASE_ICONO_ACTIVAR}
                     >
-                      {b.activo ? "Desactivar" : "Activar"}
+                      {b.activo ? <CircleCheckBig size={16} aria-hidden /> : <Ban size={16} aria-hidden />}
+                    </button>
+                    <button
+                      onClick={() => eliminar(b)}
+                      disabled={eliminandoId === b.id}
+                      aria-label={`Eliminar ${b.nombre}`}
+                      title={`Eliminar ${b.nombre}`}
+                      className={`${CLASE_ICONO_ELIMINAR} disabled:opacity-50`}
+                    >
+                      <Trash2 size={16} aria-hidden />
                     </button>
                   </div>
                 </td>
@@ -443,13 +548,19 @@ function SeccionBodegas({
 // como string, que es lo que mantiene tipado el update del cliente de
 // Supabase.
 //
-// Lo que NO hay acá, ni va a haber, es borrado físico: sucursales y
-// bodegas tienen FKs colgando (lotes, conteos, movimientos_stock,
-// perfiles_sucursal), y permitir DELETE desde la UI abriría la puerta a
-// un ON DELETE CASCADE en cadena disparado por un click — un radio de
-// explosión que ninguna de estas pantallas necesita cubrir (el mismo
-// motivo ya escrito en el encabezado de 20260806000009_superadmin_rls.sql).
-// Desactivar ya cubre el "dejá de usar esto".
+// El borrado físico SÍ existe (el ícono de tacho de cada fila), pero no
+// es un DELETE desde el cliente: va por los RPC eliminar_sucursal /
+// eliminar_bodega (20260927000000_eliminar_sucursal_y_bodega.sql). El
+// motivo es el cascade en cadena que estas dos tablas arrastran —
+// movimientos_stock y lotes cuelgan de sucursales con ON DELETE CASCADE,
+// así que un delete crudo borraría historia real sin avisar. El RPC
+// chequea antes si hay conteos/movimientos/lotes/integración pdvlat (de
+// la sucursal y también de sus bodegas) y se niega con un mensaje
+// explicando qué encontró.
+//
+// En la práctica: Eliminar sirve para la fila que se creó mal o de más;
+// en cuanto algo tenga historia real, el RPC la rechaza y lo correcto
+// sigue siendo Desactivar.
 function ModalEditar({
   titulo,
   nombreInicial,
