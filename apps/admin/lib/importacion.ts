@@ -117,6 +117,7 @@ export function aplicarMapeo(
       laboratorio: mapeo.laboratorio ? fila[mapeo.laboratorio] : undefined,
       fabricante: mapeo.fabricante ? fila[mapeo.fabricante] : undefined,
       distribuidor: mapeo.distribuidor ? fila[mapeo.distribuidor] : undefined,
+      envaseCompra: mapeo.envaseCompra ? fila[mapeo.envaseCompra] : undefined,
       loteCatalogo: mapeo.loteCatalogo ? fila[mapeo.loteCatalogo] : undefined,
       loteCatalogo2: mapeo.loteCatalogo2 ? fila[mapeo.loteCatalogo2] : undefined,
       costo,

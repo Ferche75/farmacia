@@ -1,10 +1,22 @@
 import type { createBrowserClient } from "@farmacia/db";
 
-// Mismo vocabulario que el prompt de Gemini en n8n/flujo-desconocidos-ia.json
-// (sección "unidad: uno de comprimidos|capsulas|ml|g|unidades|sobres|ampollas")
-// — así lo que sugiere la IA cae siempre en una opción real del selector.
-export const UNIDADES_PRESENTACION = ["comprimidos", "capsulas", "ml", "g", "unidades", "sobres", "ampollas"];
-export const UNIDADES_CONCENTRACION = ["mg", "ml", "mcg", "%"];
+// Las dos listas de opciones YA NO SE DEFINEN ACÁ: viven en
+// packages/db/src/campos-producto.ts y se reexportan tal cual para no
+// tocar los imports de quienes ya las usaban (pantalla-conteo.tsx,
+// tarjeta-sugerencia.tsx).
+//
+// Hasta este cambio este archivo tenía SU PROPIA copia a mano de
+// UNIDADES_PRESENTACION (7 valores) mientras apps/admin tenía otra (21), y
+// las dos se habían desincronizado: una presentación elegida en el panel
+// ni siquiera existía en el selector del dispositivo. La fuente única de
+// verdad ahora es @farmacia/db.
+//
+// Los 7 valores originales (comprimidos, capsulas, ml, g, unidades,
+// sobres, ampollas) —que son los que emite el prompt de Gemini en
+// n8n/flujo-desconocidos-ia.json— siguen estando, con la misma escritura:
+// lo que sugiere la IA sigue cayendo siempre en una opción real del
+// selector. La lista compartida es un superconjunto de ese prompt.
+export { UNIDADES_PRESENTACION, UNIDADES_CONCENTRACION } from "@farmacia/db";
 
 // Parseo best-effort de lo que devuelve la IA (ej. "400 mg") a
 // valor+unidad separados para los 2 inputs. Notaciones compuestas tipo

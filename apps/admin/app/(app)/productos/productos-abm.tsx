@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ajustarStock, createBrowserClient, type CampoPersonalizado } from "@farmacia/db";
+import {
+  ajustarStock,
+  createBrowserClient,
+  camposDePresentacion,
+  esUnidadPersonalizada,
+  UNIDADES_PRESENTACION,
+  type CampoPersonalizado,
+} from "@farmacia/db";
 import { exportarCatalogoCompleto } from "@/lib/exportar-catalogo";
 
 interface ProductoFila {
@@ -99,6 +106,22 @@ interface FormState {
   stockMinimo: string;
   codigoProveedor: string;
   distribuidor: string;
+  /** productos_empresa.envase_compra — cómo lo factura el proveedor. */
+  envaseCompra: string;
+  /** UI: true si "envaseCompra" no está en ENVASES_COMPRA (select en modo
+   * "Otro…") — no se persiste. Mismo mecanismo que unidadModoLibre. */
+  envaseCompraModoLibre: boolean;
+  // ── Importadora → marcas (solo apps/admin) ──────────────────
+  /** id de `importadoras` ya resuelto, o "" si no hay ninguna elegida.
+   * Se guarda en productos_empresa.importadora_id. */
+  importadoraId: string;
+  /** Solo se usa en modo "Otro…": el nombre a dar de alta al guardar,
+   * con el mismo upsert-por-nombre que `laboratorioNombre`. */
+  importadoraNombre: string;
+  importadoraModoLibre: boolean;
+  /** UI: el usuario eligió "Otro…" en el select de Marca. Es solo la
+   * mitad de la condición — ver `marcaLibre` en el render. */
+  marcaModoLibre: boolean;
   loteCatalogo: string;
   loteCatalogo2: string;
   // ── Venta fraccionada (productos_empresa, por empresa) ──────
@@ -142,6 +165,12 @@ const FORM_VACIO: FormState = {
   stockMinimo: "",
   codigoProveedor: "",
   distribuidor: "",
+  envaseCompra: "",
+  envaseCompraModoLibre: false,
+  importadoraId: "",
+  importadoraNombre: "",
+  importadoraModoLibre: false,
+  marcaModoLibre: false,
   loteCatalogo: "",
   loteCatalogo2: "",
   fraccionable: false,
@@ -229,77 +258,44 @@ function errorDeLote(e: { code?: string } | null): Error {
 
 const TAMANO_PAGINA = 50;
 
-// Mismo vocabulario fijo que ya usa /desconocidos (panel-detalle.tsx) para
-// este campo — ver docs/decisiones.md, 2026-08-14. Duplicado a propósito,
-// no compartido: cada pantalla de apps/admin ya sigue ese criterio (por eso
-// las presentaciones que se agregaron acá el 2026-09-15 NO se replicaron
-// allá — /desconocidos resuelve otro problema y su lista es suya).
+// UNIDADES_PRESENTACION / CAMPOS_POR_PRESENTACION / camposDePresentacion /
+// esUnidadPersonalizada YA NO VIVEN ACÁ: se movieron a
+// packages/db/src/campos-producto.ts (se importan arriba, desde
+// @farmacia/db). Motivo: apps/conteo tenía SU PROPIA copia a mano del
+// array —con 7 valores contra los 21 de acá— y las dos se desincronizaron.
+// Ahora hay una sola definición, con la misma convención de siempre
+// (minúsculas, sin acentos, el valor se muestra tal cual) y con los 7
+// valores originales escritos exactamente igual, así que ningún producto
+// guardado cae en "Otro…".
 //
-// Convención de la lista: minúsculas, sin acentos, y el valor se muestra
-// tal cual como etiqueta del <option>. Por eso "tableta efervescente" va
-// con espacio y no con guión bajo: se persiste igual que se lee. Los 7
-// valores originales (comprimidos, capsulas, ml, g, unidades, sobres,
-// ampollas) siguen escritos exactamente igual — hay productos guardados
-// con esos strings y renombrarlos los dejaría en "Otro…".
-const UNIDADES_PRESENTACION = [
-  "comprimidos",
-  "capsulas",
-  "tabletas",
-  "tableta efervescente",
-  "jarabe",
-  "suspension",
-  "ampollas",
-  "vial",
-  "gotas",
-  "frasco",
-  "sobres",
-  "polvos",
-  "gel",
-  "crema",
-  "pomada",
-  "unguento",
-  "aceite",
-  "parches",
-  "ml",
-  "g",
-  "unidades",
-];
+// /desconocidos (panel-detalle.tsx) sigue con su lista propia y corta, a
+// propósito — ver docs/decisiones.md, 2026-08-14: resuelve otro problema
+// (validar lo que devolvió la IA) y su vocabulario es suyo.
 
 const CONTENIDOS_SUGERIDOS = ["10", "15", "20", "30", "50", "60", "100", "120", "150", "200", "250", "300", "500", "1000"];
 
-// Qué campos extra tiene sentido pedir según la presentación. Vive acá y
-// no en la base a propósito: es criterio de formulario (qué se le muestra
-// a quien carga), no un dato de negocio que una empresa necesite editar —
-// si algún día lo necesita, recién ahí se mueve a empresas.config.
+// Cómo viene descrito el envase en la FACTURA DEL PROVEEDOR. Textual del
+// usuario: "ESTOS NO SON PRESENTACION PERO SON ENVASES QUE ASI ESTAN EN LAS
+// FACTURAS DE COMPRAS". Es un dato de compras, puramente descriptivo: no
+// convierte cantidades, no deriva `contenido` y no habilita precios por
+// nivel — nada que ver con la Presentación de más arriba, que sí arrastra
+// toda esa estructura.
 //
-// Una presentación que no esté en el mapa (las de texto libre del "Otro…",
-// y todas las que no figuran acá) cae en el objeto vacío: el formulario
-// queda exactamente como estaba antes de este cambio.
-interface CamposPresentacion {
-  /** Sólido en blíster: se puede vender caja / blíster / unidad suelta. */
-  fraccionable?: boolean;
-  /** Líquido: `contenido` se rotula en mililitros, y no hay blísteres. */
-  contenidoEnMl?: boolean;
+// Vive acá y no en @farmacia/db (a diferencia de UNIDADES_PRESENTACION)
+// porque es vocabulario de UNA pantalla de apps/admin: apps/conteo no lo
+// muestra ni lo escribe. Compartirlo sería anticipar un reuso que nadie
+// pidió. Los 5 valores salen de las facturas que el usuario tiene hoy a la
+// vista, no de una norma — de ahí el "Otro…" de texto libre, igual que en
+// Presentación.
+const ENVASES_COMPRA = ["frasco", "lata", "bolsa", "estuche", "equipo"];
+
+function esEnvasePersonalizado(envase: string): boolean {
+  return envase !== "" && !ENVASES_COMPRA.includes(envase);
 }
 
-const CAMPOS_POR_PRESENTACION: Record<string, CamposPresentacion> = {
-  comprimidos: { fraccionable: true },
-  capsulas: { fraccionable: true },
-  tabletas: { fraccionable: true },
-  // "tableta efervescente" queda AFUERA del fraccionamiento a propósito
-  // (pedido explícito del usuario): viene en tubo, no en blíster.
-  jarabe: { contenidoEnMl: true },
-  suspension: { contenidoEnMl: true },
-  ampollas: { contenidoEnMl: true },
-  vial: { contenidoEnMl: true },
-};
-
-function camposDePresentacion(unidad: string): CamposPresentacion {
-  return CAMPOS_POR_PRESENTACION[unidad] ?? {};
-}
-
-function esUnidadPersonalizada(unidad: string): boolean {
-  return unidad !== "" && !UNIDADES_PRESENTACION.includes(unidad);
+interface ImportadoraOpcion {
+  id: string;
+  nombre: string;
 }
 
 // Todas las columnas mostrables de la tabla, aparte de Nombre y Acciones
@@ -379,6 +375,14 @@ export function ProductosAbm({
   // de más abajo, que es el desglose por sucursal del modal de edición.
   const [stockPorProducto, setStockPorProducto] = useState<Map<string, StockDesglose>>(new Map());
   const [sucursales, setSucursales] = useState<SucursalOpcion[]>([]);
+  // Catálogo de importadoras de ESTA empresa (20260924000001). Se carga
+  // una vez con las sucursales: son unas pocas filas y no tiene sentido
+  // pedirlas cada vez que se abre el modal.
+  const [importadoras, setImportadoras] = useState<ImportadoraOpcion[]>([]);
+  // Marcas conocidas por importadora. Caché acumulativo (nunca se limpia)
+  // para que el efecto de abajo no tenga que hacer un setState síncrono al
+  // cambiar de importadora — mismo criterio que `stockPorSucursal`.
+  const [marcasPorImportadora, setMarcasPorImportadora] = useState<Map<string, string[]>>(new Map());
   const [buscando, setBuscando] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
   const [guardando, setGuardando] = useState(false);
@@ -485,6 +489,13 @@ export function ProductosAbm({
       .then(({ data }) => setSucursales(data ?? []));
 
     supabase
+      .from("importadoras")
+      .select("id, nombre")
+      .eq("empresa_id", empresaId)
+      .order("nombre")
+      .then(({ data }) => setImportadoras(data ?? []));
+
+    supabase
       .from("empresas")
       .select("config")
       .eq("id", empresaId)
@@ -494,6 +505,33 @@ export function ProductosAbm({
         setCamposPersonalizados(Array.isArray(raw) ? (raw as CampoPersonalizado[]) : []);
       });
   }, [supabase, empresaId]);
+
+  // Marcas de la importadora elegida. Solo se piden cuando hay una
+  // importadora YA EXISTENTE seleccionada: una que se está dando de alta
+  // en modo "Otro…" todavía no tiene id ni marcas, y el campo Marca cae en
+  // su modo de texto libre de siempre.
+  const importadoraSeleccionada = form && !form.importadoraModoLibre ? form.importadoraId : "";
+
+  useEffect(() => {
+    if (!importadoraSeleccionada) return;
+    let cancelado = false;
+    void supabase
+      .from("marcas_importadora")
+      .select("nombre")
+      .eq("importadora_id", importadoraSeleccionada)
+      .order("nombre")
+      .then(({ data }) => {
+        if (cancelado) return;
+        setMarcasPorImportadora((prev) =>
+          new Map(prev).set(importadoraSeleccionada, (data ?? []).map((m) => m.nombre))
+        );
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [importadoraSeleccionada, supabase]);
+
+  const marcasSugeridas = marcasPorImportadora.get(importadoraSeleccionada) ?? [];
 
   // Al abrir el modal de un producto QUE YA EXISTE, se pide el stock de
   // cada sucursal en paralelo (un stock_actual_desglose por sucursal — no
@@ -826,7 +864,7 @@ export function ProductosAbm({
     const { data: pe } = await supabase
       .from("productos_empresa")
       .select(
-        "costo, precio, stock_minimo, codigo_proveedor, distribuidor, lote_catalogo, lote_catalogo_2, campos_extra, fraccionable, unidades_por_blister, blisters_por_caja, precio_blister, precio_unidad"
+        "costo, precio, stock_minimo, codigo_proveedor, distribuidor, envase_compra, importadora_id, lote_catalogo, lote_catalogo_2, campos_extra, fraccionable, unidades_por_blister, blisters_por_caja, precio_blister, precio_unidad"
       )
       .eq("empresa_id", empresaId)
       .eq("producto_id", p.id)
@@ -883,6 +921,18 @@ export function ProductosAbm({
       stockMinimo: pe?.stock_minimo != null ? String(pe.stock_minimo) : "",
       codigoProveedor: pe?.codigo_proveedor ?? "",
       distribuidor: pe?.distribuidor ?? "",
+      envaseCompra: pe?.envase_compra ?? "",
+      envaseCompraModoLibre: esEnvasePersonalizado(pe?.envase_compra ?? ""),
+      // El id alcanza: el nombre para mostrar sale de `importadoras`, que
+      // ya está cargado en memoria. Así no hace falta ni un embed de
+      // PostgREST ni una segunda consulta por producto.
+      importadoraId: pe?.importadora_id ?? "",
+      importadoraNombre: "",
+      importadoraModoLibre: false,
+      // Se arranca siempre en false: si la marca guardada no está entre
+      // las sugeridas, `marcaLibre` (calculado en el render) lo detecta
+      // solo, sin depender de que las marcas ya hayan llegado acá.
+      marcaModoLibre: false,
       loteCatalogo: pe?.lote_catalogo ?? "",
       loteCatalogo2: pe?.lote_catalogo_2 ?? "",
       fraccionable: pe?.fraccionable ?? false,
@@ -916,6 +966,20 @@ export function ProductosAbm({
   const contenidoDerivado =
     form && fraccionaAhora ? String(Number(form.blistersPorCaja) * Number(form.unidadesPorBlister) || "") : "";
   const contenidoEfectivo = fraccionaAhora ? contenidoDerivado : (form?.contenido ?? "");
+
+  // ── Marca: catálogo de sugerencias, no una FK ────────────────
+  // `productos.marca` sigue siendo TEXTO LIBRE GLOBAL y se guarda igual
+  // que siempre; lo único que cambia es de dónde puede salir ese texto.
+  // El campo se muestra como select solo si la importadora elegida ya
+  // tiene marcas conocidas — el catálogo arranca vacío para cada empresa,
+  // y un select con una sola opción ("Otro…") sería peor que un input.
+  //
+  // `marcaLibre` es OR de dos cosas a propósito: el toggle explícito del
+  // usuario, y el caso "la marca guardada no figura entre las sugeridas"
+  // (producto viejo, o marca cargada bajo otra importadora). Sin la
+  // segunda mitad, abrir uno de esos productos mostraría un select en
+  // blanco y guardar le borraría la marca.
+  const marcaLibre = !!form && (form.marcaModoLibre || (form.marca !== "" && !marcasSugeridas.includes(form.marca)));
 
   function actualizarLote(i: number, cambios: Partial<LoteForm>) {
     if (!form) return;
@@ -985,6 +1049,41 @@ export function ProductosAbm({
           .single();
         if (labErr) throw labErr;
         laboratorioId = lab.id;
+      }
+
+      // Importadora: mismo upsert-por-nombre que `laboratorios` de acá
+      // arriba, pero con la llave compuesta (empresa_id, nombre) porque
+      // este catálogo es POR EMPRESA — dos farmacias pueden tener una
+      // "SAE" cada una y son filas distintas.
+      //
+      // Se resuelve ANTES del upsert a productos_empresa (y no adentro)
+      // porque el `if` que decide si ese upsert corre necesita saber si
+      // hay importadora: si no, dar de alta la primera importadora de un
+      // producto que no tiene ningún otro dato de empresa no se guardaría.
+      let importadoraId: string | null = form.importadoraModoLibre ? null : form.importadoraId || null;
+      if (form.importadoraModoLibre && form.importadoraNombre.trim()) {
+        const { data: imp, error: impErr } = await supabase
+          .from("importadoras")
+          .upsert({ empresa_id: empresaId, nombre: form.importadoraNombre.trim() }, { onConflict: "empresa_id,nombre" })
+          .select("id")
+          .single();
+        if (impErr) throw impErr;
+        importadoraId = imp.id;
+      }
+
+      // La marca se sigue guardando como TEXTO LIBRE en productos.marca
+      // (abajo, en `payload`) — esto es aparte: si hay importadora y hay
+      // marca, la marca se aprende para que la próxima vez aparezca
+      // sugerida. El upsert es idempotente, así que reguardar un producto
+      // sin cambios no hace nada.
+      if (importadoraId && form.marca.trim()) {
+        const { error: marcaErr } = await supabase
+          .from("marcas_importadora")
+          .upsert(
+            { importadora_id: importadoraId, nombre: form.marca.trim() },
+            { onConflict: "importadora_id,nombre" }
+          );
+        if (marcaErr) throw marcaErr;
       }
 
       const payload = {
@@ -1065,6 +1164,8 @@ export function ProductosAbm({
         form.stockMinimo ||
         form.codigoProveedor ||
         form.distribuidor ||
+        form.envaseCompra ||
+        importadoraId ||
         form.loteCatalogo ||
         form.loteCatalogo2 ||
         fraccionaAhora ||
@@ -1083,6 +1184,10 @@ export function ProductosAbm({
             stock_minimo: form.stockMinimo ? Number(form.stockMinimo) : null,
             codigo_proveedor: form.codigoProveedor || null,
             distribuidor: form.distribuidor || null,
+            envase_compra: form.envaseCompra || null,
+            // Aditivo: convive con `distribuidor` de acá arriba, no lo
+            // reemplaza (ver 20260924000001_importadoras_y_marcas.sql).
+            importadora_id: importadoraId,
             lote_catalogo: form.loteCatalogo || null,
             lote_catalogo_2: form.loteCatalogo2 || null,
             campos_extra: form.camposExtra,
@@ -1508,15 +1613,86 @@ export function ProductosAbm({
             )}
 
             <div className="grid grid-cols-2 gap-4">
-              <Campo label="Marca">
-                <input
+              {/* Importadora: catálogo POR EMPRESA que se llena solo, igual
+                  que Laboratorio (que tampoco tiene pantalla de gestión).
+                  Elegir una acá filtra las sugerencias de Marca de al lado.
+                  NO reemplaza a Distribuidor, que sigue más abajo con su
+                  texto libre de siempre. */}
+              <Campo label="Importadora">
+                <select
                   className="input"
-                  value={form.marca}
-                  onChange={(e) => setForm({ ...form, marca: e.target.value })}
-                />
+                  value={form.importadoraModoLibre ? "__otro__" : form.importadoraId}
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    if (valor === "__otro__") {
+                      setForm({ ...form, importadoraId: "", importadoraModoLibre: true });
+                    } else {
+                      setForm({ ...form, importadoraId: valor, importadoraNombre: "", importadoraModoLibre: false });
+                    }
+                  }}
+                >
+                  <option value="">Sin importadora</option>
+                  {importadoras.map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.nombre}
+                    </option>
+                  ))}
+                  <option value="__otro__">Otra…</option>
+                </select>
+                {form.importadoraModoLibre && (
+                  <input
+                    className="input mt-2"
+                    value={form.importadoraNombre}
+                    onChange={(e) => setForm({ ...form, importadoraNombre: e.target.value })}
+                    placeholder="Nombre de la importadora"
+                  />
+                )}
+              </Campo>
+              <Campo label="Marca">
+                {marcasSugeridas.length > 0 ? (
+                  <>
+                    <select
+                      className="input"
+                      value={marcaLibre ? "__otro__" : form.marca}
+                      onChange={(e) => {
+                        const valor = e.target.value;
+                        if (valor === "__otro__") {
+                          setForm({ ...form, marca: "", marcaModoLibre: true });
+                        } else {
+                          setForm({ ...form, marca: valor, marcaModoLibre: false });
+                        }
+                      }}
+                    >
+                      <option value="">Marca…</option>
+                      {marcasSugeridas.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                      <option value="__otro__">Otra…</option>
+                    </select>
+                    {marcaLibre && (
+                      <input
+                        className="input mt-2"
+                        value={form.marca}
+                        onChange={(e) => setForm({ ...form, marca: e.target.value })}
+                        placeholder="Escribí la marca"
+                      />
+                    )}
+                  </>
+                ) : (
+                  <input
+                    className="input"
+                    value={form.marca}
+                    onChange={(e) => setForm({ ...form, marca: e.target.value })}
+                  />
+                )}
                 <p className="mt-1 text-xs text-muted">
                   El nombre comercial con el que se vende (ej. &quot;Tafirol&quot;). No reemplaza al Nombre de arriba
                   ni se usa para buscar — es un dato más de la ficha.
+                  {form.importadoraId
+                    ? " Si escribís una marca nueva, queda guardada para esta importadora y se sugiere la próxima vez."
+                    : " Elegí una importadora para que te sugiera sus marcas."}
                 </p>
               </Campo>
               <Campo label="Laboratorio">
@@ -1580,7 +1756,25 @@ export function ProductosAbm({
                   (blísteres × unidades) y se muestra de solo lectura: son
                   el mismo número y dejar los dos editables habilitaba
                   cargar una caja de 3×10 que dijera contener 24. */}
-              <Campo label={camposPresentacion.contenidoEnMl ? "Contenido (mililitros)" : "Contenido"}>
+              {/* El rótulo respeta esta precedencia: si el producto está
+                  fraccionado, `contenido` es el DERIVADO (blísteres o
+                  bandejas × unidades) y por lo tanto se mide en unidades,
+                  aunque la presentación también sea líquida. Pasa con
+                  ampollas y vial, que llevan las dos banderas
+                  (fraccionable + contenidoEnMl): una caja trae N ampollas
+                  —eso es `contenido`— y cada ampolla trae sus ml o sus
+                  gramos, que se cargan en Concentración. Sin esta
+                  precedencia el campo decía "mililitros" mientras la ayuda
+                  de abajo explicaba que era una multiplicación. */}
+              <Campo
+                label={
+                  fraccionaAhora
+                    ? "Contenido (unidades)"
+                    : camposPresentacion.contenidoEnMl
+                      ? "Contenido (mililitros)"
+                      : "Contenido"
+                }
+              >
                 <input
                   type="number"
                   className="input"
@@ -1794,6 +1988,44 @@ export function ProductosAbm({
                   value={form.distribuidor}
                   onChange={(e) => setForm({ ...form, distribuidor: e.target.value })}
                 />
+              </Campo>
+              {/* Va con Distribuidor / Lote y no con la Presentación de
+                  arriba a propósito: es un dato de COMPRAS (cómo lo
+                  factura el proveedor), no una característica del
+                  producto. Mismo mecanismo de "Otro…" que Presentación. */}
+              <Campo label="Envase de compra">
+                <select
+                  className="input"
+                  value={form.envaseCompraModoLibre ? "__otro__" : form.envaseCompra}
+                  onChange={(e) => {
+                    const valor = e.target.value;
+                    if (valor === "__otro__") {
+                      setForm({ ...form, envaseCompra: "", envaseCompraModoLibre: true });
+                    } else {
+                      setForm({ ...form, envaseCompra: valor, envaseCompraModoLibre: false });
+                    }
+                  }}
+                >
+                  <option value="">Envase…</option>
+                  {ENVASES_COMPRA.map((env) => (
+                    <option key={env} value={env}>
+                      {env}
+                    </option>
+                  ))}
+                  <option value="__otro__">Otro…</option>
+                </select>
+                {form.envaseCompraModoLibre && (
+                  <input
+                    className="input mt-2"
+                    value={form.envaseCompra}
+                    onChange={(e) => setForm({ ...form, envaseCompra: e.target.value })}
+                    placeholder="Escribí el envase"
+                  />
+                )}
+                <p className="mt-1 text-xs text-muted">
+                  Cómo viene descrito el envase en la factura del proveedor. Es informativo: no cambia la
+                  presentación ni cómo se cuenta el stock.
+                </p>
               </Campo>
               <Campo label="Lote">
                 <input

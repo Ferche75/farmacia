@@ -22,8 +22,9 @@
 //      y aplicarMapeo (apps/admin/lib/importacion.ts), si el campo se
 //      tiene que poder importar de verdad y no solo mapear en pantalla.
 //   3. El whitelist hardcodeado de `actualizar_config_operativa_empresa`
-//      (supabase/migrations/20260922000000_...), que rechaza cualquier
-//      campo desconocido en la lista de obligatorios.
+//      (versión viva:
+//      supabase/migrations/20260924000000_envase_de_compra.sql), que
+//      rechaza cualquier campo desconocido en la lista de obligatorios.
 //   4. `confirmar_importacion_lote` (misma migración), en sus 3 caminos.
 //   5. Si además el campo tiene que poder completarse desde apps/conteo:
 //      CAMPOS_COMPLETABLES_CONTEO (apps/conteo/lib/campos-obligatorios.ts)
@@ -65,6 +66,16 @@ export const CAMPOS_SISTEMA = [
   { campo: "laboratorio", label: "Laboratorio (si el archivo mezcla varios)", requerido: false },
   { campo: "fabricante", label: "Fabricante", requerido: false },
   { campo: "distribuidor", label: "Distribuidor", requerido: false },
+  // Columna de `productos_empresa` desde
+  // 20260924000000_envase_de_compra.sql. Mismo trato que distribuidor /
+  // loteCatalogo: mapeable en el wizard, opcionalmente obligatoria vía la
+  // config de la empresa, nunca requerida por el sistema. NO entra al
+  // subconjunto completable de apps/conteo (punto 5 de la lista de arriba)
+  // a propósito: en qué envase vino la compra es una preocupación de
+  // administración, no algo que un operario tenga que resolver con el
+  // lector en la mano. Si una empresa lo tilda como obligatorio, lo exige
+  // el importador y el popup de conteo lo ignora — igual que `costo`.
+  { campo: "envaseCompra", label: "Envase de compra", requerido: false },
   { campo: "loteCatalogo", label: "Lote", requerido: false },
   { campo: "loteCatalogo2", label: "Lote 2", requerido: false },
   { campo: "costo", label: "Costo", requerido: false },
@@ -92,6 +103,7 @@ export const MAPEO_VACIO: MapeoColumnas = {
   laboratorio: "",
   fabricante: "",
   distribuidor: "",
+  envaseCompra: "",
   loteCatalogo: "",
   loteCatalogo2: "",
   costo: "",
@@ -116,6 +128,7 @@ const SINONIMOS: Partial<Record<CampoSistema, string[]>> = {
   laboratorio: ["laboratorio", "lab"],
   fabricante: ["fabricante", "manufacturer", "manufactura"],
   distribuidor: ["distribuidor", "distributor"],
+  envaseCompra: ["envase", "envasecompra", "tipoenvase", "empaque"],
   loteCatalogo: ["lote"],
   loteCatalogo2: ["lote2", "lotedos", "loteb"],
   nombre: ["itemname", "nombre", "producto", "nombreproducto", "articulo", "item"],
@@ -135,6 +148,15 @@ const ORDEN_AUTOMAPEO: CampoSistema[] = [
   "codigoProveedor", "codigoBarra", "laboratorio", "fabricante", "distribuidor", "nombre",
   "principioActivo", "accionTerapeutica", "especialidad", "marca",
   "concentracion", "contenido", "unidad", "categoria",
+  // envaseCompra va DESPUÉS de "unidad" y no pegado a "distribuidor",
+  // aunque sean campos hermanos (los dos de productos_empresa): su
+  // sinónimo genérico "envase" tiene 6 caracteres, o sea que matchea por
+  // contención, y un header como "Unidad de envase" es presentación, no
+  // envase de compra. Dejando que "unidad" reclame primero, el caso
+  // ambiguo cae del lado correcto. Los headers inequívocos
+  // ("Envase", "Tipo de envase", "Empaque") no contienen "unidad" y le
+  // llegan igual.
+  "envaseCompra",
   "loteCatalogo2", "loteCatalogo", "costo", "precio",
 ];
 

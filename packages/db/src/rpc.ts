@@ -329,6 +329,12 @@ export interface FilaImportacion {
    * empresas pueden recibir el mismo producto de distribuidores
    * distintos. */
   distribuidor?: string;
+  /** Cómo describe la FACTURA del proveedor el envase de la compra
+   * (frasco, lata, bolsa, estuche, equipo…). De la relación
+   * empresa-producto, igual que distribuidor — ver
+   * 20260924000000_envase_de_compra.sql. Puramente informativo: no
+   * convierte cantidades ni deriva `contenido`. */
+  envaseCompra?: string;
   /** Dato ESTÁTICO del catálogo, no el lote dinámico que ya trackean
    * escaneos/lotes por conteo (confirmado con el usuario). */
   loteCatalogo?: string;
@@ -413,6 +419,7 @@ function filaImportacionAPayload(f: FilaImportacion): Json {
     laboratorio: f.laboratorio ?? null,
     fabricante: f.fabricante ?? null,
     distribuidor: f.distribuidor ?? null,
+    envase_compra: f.envaseCompra ?? null,
     lote_catalogo: f.loteCatalogo ?? null,
     lote_catalogo_2: f.loteCatalogo2 ?? null,
     costo: f.costo ?? null,

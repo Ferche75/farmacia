@@ -6,6 +6,17 @@ export { createClient as createBrowserClient } from "./supabase/client";
 export type { Database, Rol, Json } from "./types/database.types";
 export { normalizarCodigo } from "./normalizar-codigo";
 export type { CodigoNormalizado } from "./normalizar-codigo";
+// Vocabulario de presentación/concentración — una sola definición para
+// apps/admin y apps/conteo (antes era un array copiado a mano en cada
+// app, que se desincronizó). Ver ./campos-producto.ts.
+export {
+  UNIDADES_PRESENTACION,
+  UNIDADES_CONCENTRACION,
+  CAMPOS_POR_PRESENTACION,
+  camposDePresentacion,
+  esUnidadPersonalizada,
+} from "./campos-producto";
+export type { CamposPresentacion } from "./campos-producto";
 export {
   buscarProducto,
   registrarEscaneosBatch,

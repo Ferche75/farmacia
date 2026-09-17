@@ -224,6 +224,50 @@ export interface Database {
           },
         ];
       };
+      importadoras: {
+        Row: {
+          id: string;
+          empresa_id: string;
+          nombre: string;
+        };
+        Insert: {
+          id?: string;
+          empresa_id: string;
+          nombre: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["importadoras"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "importadoras_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      marcas_importadora: {
+        Row: {
+          id: string;
+          importadora_id: string;
+          nombre: string;
+        };
+        Insert: {
+          id?: string;
+          importadora_id: string;
+          nombre: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["marcas_importadora"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "marcas_importadora_importadora_id_fkey";
+            columns: ["importadora_id"];
+            isOneToOne: false;
+            referencedRelation: "importadoras";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       productos_empresa: {
         Row: {
           empresa_id: string;
@@ -233,6 +277,13 @@ export interface Database {
           stock_minimo: number | null;
           codigo_proveedor: string | null;
           distribuidor: string | null;
+          // Cómo describe la FACTURA del proveedor el envase de la compra
+          // (frasco, lata, bolsa, estuche, equipo…). Informativo, distinto
+          // de productos.forma/unidad — ver 20260924000000.
+          envase_compra: string | null;
+          // Catálogo de importadoras de ESTA empresa (20260924000001).
+          // ADITIVO: convive con `distribuidor`, no lo reemplaza.
+          importadora_id: string | null;
           lote_catalogo: string | null;
           lote_catalogo_2: string | null;
           campos_extra: Json;
@@ -254,6 +305,8 @@ export interface Database {
           stock_minimo?: number | null;
           codigo_proveedor?: string | null;
           distribuidor?: string | null;
+          envase_compra?: string | null;
+          importadora_id?: string | null;
           lote_catalogo?: string | null;
           lote_catalogo_2?: string | null;
           campos_extra?: Json;
@@ -278,6 +331,13 @@ export interface Database {
             columns: ["producto_id"];
             isOneToOne: false;
             referencedRelation: "productos";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "productos_empresa_importadora_id_fkey";
+            columns: ["importadora_id"];
+            isOneToOne: false;
+            referencedRelation: "importadoras";
             referencedColumns: ["id"];
           },
         ];
