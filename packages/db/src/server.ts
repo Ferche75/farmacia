@@ -6,3 +6,4 @@ export { updateSession } from "./supabase/proxy";
 export { getPerfilActual } from "./perfil";
 export type { PerfilActual } from "./perfil";
 export { createServiceRoleClient } from "./supabase/service";
+export { createAnonClient } from "./supabase/anon";

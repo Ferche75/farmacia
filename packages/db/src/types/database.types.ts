@@ -1106,7 +1106,11 @@ export interface Database {
         Returns: Json;
       };
       /** Solo service_role — devuelve credenciales, lo llama
-       * apps/admin/app/api/pdvlat/vincular. */
+       * apps/admin/app/api/pdvlat/vincular. Desde 20260925000000 el json
+       * de salida incluye además `sucursales`: [{ sucursal_id, nombre }]
+       * con TODAS las activas de la empresa (la misma credencial sirve
+       * para cualquiera de ellas); `sucursal_id`/`bodega_id` de arriba
+       * siguen siendo el destino por defecto. */
       vincular_integracion_pdv: {
         Args: { p_codigo: string; p_tenant_id: string };
         Returns: Json;
