@@ -546,6 +546,18 @@ export async function resolverDesconocido(
 
 export interface NuevoProductoManual {
   nombre: string;
+  /** Precio de VENTA al público. REQUERIDO (sin `?`), igual que `nombre` y
+   * a diferencia de todo el resto de esta interfaz: desde
+   * 20260923000000_precio_obligatorio_y_visible_en_conteo.sql el RPC hace
+   * `raise exception 'Falta el precio del producto'` si no llega o no
+   * castea a numeric, así que tiparlo opcional sería mentir sobre el
+   * contrato.
+   *
+   * Que un operario de apps/conteo cargue un precio es una decisión
+   * explícita del usuario (él conoce los precios de venta). NO existe un
+   * `costo` en este tipo ni en el RPC: el precio de COMPRA al proveedor
+   * sigue completamente afuera de apps/conteo. */
+  precio: number;
   /** Nombre, no id — crear_producto_y_contar (RPC) lo resuelve/crea él
    * mismo con SECURITY DEFINER, porque quien llama puede ser un operario
    * sin permiso de escritura directa sobre `laboratorios` (a diferencia de
@@ -599,15 +611,23 @@ export async function crearProductoYContar(
 // ═══════════════════════════════════════════════════════════════
 // Completar datos obligatorios al escanear (apps/conteo)
 // ═══════════════════════════════════════════════════════════════
-// (supabase/migrations/20260922000000_completar_datos_obligatorios_al_escanear.sql)
+// (supabase/migrations/20260922000000_completar_datos_obligatorios_al_escanear.sql,
+//  modificada por 20260923000000_precio_obligatorio_y_visible_en_conteo.sql)
 //
-// NUNCA hay un costo ni un precio en ninguno de estos tipos, y las dos
-// funciones SQL detrás tampoco seleccionan esas columnas: apps/conteo es
-// de operarios y CONTEXTO.md regla 1/3 dice que ahí no entra un precio.
+// NUNCA hay un `costo` en ninguno de estos tipos, y las dos funciones SQL
+// detrás tampoco seleccionan esa columna: el precio de COMPRA al proveedor
+// no entra en apps/conteo por ninguna vía.
+//
+// `precio` (el de VENTA) SÍ está, desde 20260923000000: decisión explícita
+// del usuario — el operario que cuenta conoce los precios de venta, así que
+// puede verlos y completarlos. Los comentarios de 20260922000000 que decían
+// "ni costo ni precio, no negociable" quedaron desactualizados en esa mitad;
+// la migración nueva los reescribe.
 
 /** Los campos de un producto que el popup de conteo puede completar.
- * Todos strings salvo `contenido`, que es numeric en la base. `laboratorio`
- * va como NOMBRE (el RPC lo resuelve/crea con SECURITY DEFINER). */
+ * Todos strings salvo `contenido` y `precio`, que son numeric en la base.
+ * `laboratorio` va como NOMBRE (el RPC lo resuelve/crea con SECURITY
+ * DEFINER). */
 export interface DatosCompletablesProducto {
   producto_id: string;
   principioActivo: string | null;
@@ -624,20 +644,26 @@ export interface DatosCompletablesProducto {
   distribuidor: string | null;
   loteCatalogo: string | null;
   loteCatalogo2: string | null;
+  /** Precio de VENTA de ESTA empresa (productos_empresa.precio). numeric en
+   * la base. Ver el bloque de arriba: entra desde 20260923000000. */
+  precio: number | null;
   /** La lista de obligatorios de la empresa, ya filtrada por el servidor
-   * al subconjunto completable desde conteo (sin costo/precio). */
+   * al subconjunto completable desde conteo (sin costo). */
   campos_requeridos: string[];
 }
 
-/** Los 4 campos de productos_empresa que hacen falta para el chequeo de
- * completitud. Sin costo ni precio, que viven en la misma tabla y NO
- * salen nunca por este camino. */
+/** Los 5 campos de productos_empresa que hacen falta para el chequeo de
+ * completitud. Sin `costo`, que vive en la misma tabla y NO sale nunca por
+ * este camino. */
 export interface OverlayEmpresaProducto {
   producto_id: string;
   codigo_proveedor: string | null;
   distribuidor: string | null;
   lote_catalogo: string | null;
   lote_catalogo_2: string | null;
+  /** snake_case como lo devuelve el RPC (a diferencia de
+   * DatosCompletablesProducto, que viene en camelCase). */
+  precio: number | null;
 }
 
 export interface DatosCompletitudCatalogo {
@@ -654,9 +680,11 @@ export interface DatosCompletitudCatalogo {
  *
  * Es un RPC y no un `.select()` por dos motivos que están explicados largo
  * en la migración: `productos_empresa` es invisible para un operario a
- * propósito (es la barrera de costo/precio, puesta en RLS), y
+ * propósito (la policy tapa la fila entera, que incluye `costo`), y
  * `empresas.config` guarda n8n_webhook_secret, así que traerse esa columna
- * entera al teléfono sería filtrar un secreto de arrastre. */
+ * entera al teléfono sería filtrar un secreto de arrastre. El RPC elige a
+ * mano las 5 columnas que sí bajan — precio incluido desde 20260923000000,
+ * costo nunca. */
 export async function datosCompletitudCatalogo(
   supabase: SupabaseClient<Database>,
   params: { offset?: number; limit?: number } = {}

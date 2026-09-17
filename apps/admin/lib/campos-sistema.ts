@@ -29,7 +29,19 @@
 //      CAMPOS_COMPLETABLES_CONTEO (apps/conteo/lib/campos-obligatorios.ts)
 //      y su gemelo `v_campos_completables` en `completar_datos_producto` /
 //      `datos_completitud_catalogo_conteo`. Ese subconjunto NUNCA puede
-//      incluir costo ni precio (CONTEXTO.md regla 1/3).
+//      incluir `costo` — el precio de COMPRA al proveedor no entra en
+//      apps/conteo por ninguna vía. `precio` (el de VENTA) SÍ entra desde
+//      20260923000000_precio_obligatorio_y_visible_en_conteo.sql, por
+//      pedido explícito del usuario: quien cuenta conoce los precios de
+//      venta y puede cargarlos. No confundir los dos.
+//
+// DOS ENTRADAS DE ESTE ARRAY SON OBLIGATORIAS DEL SISTEMA, no de cada
+// empresa: "nombre" (siempre lo fue) y "precio" (desde 20260923000000).
+// Siguen figurando acá porque el mapeo de columnas del wizard las necesita,
+// pero NO se muestran como checkboxes destildables en Configuración →
+// "Campos obligatorios al importar" (config-operativa.tsx las filtra y
+// pinta dos filas fijas), y el importador las trata como requeridas sin
+// mirar la config de la empresa (importador.tsx, `esRequerido`).
 export const CAMPOS_SISTEMA = [
   { campo: "codigoBarra", label: "Código de barras", requerido: false },
   { campo: "unidadesPorCodigo", label: "Unidades por código (caja/blíster)", requerido: false },

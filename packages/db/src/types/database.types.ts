@@ -933,6 +933,10 @@ export interface Database {
         };
         Returns: Json;
       };
+      /** `p_nuevo_producto` tiene dos keys OBLIGATORIAS —`nombre` y, desde
+       * 20260923000000_precio_obligatorio_y_visible_en_conteo.sql,
+       * `precio`—: sin ellas el RPC hace raise. Ver NuevoProductoManual en
+       * rpc.ts, que es el tipo que las modela. */
       crear_producto_y_contar: {
         Args: {
           p_conteo: string;
@@ -945,21 +949,24 @@ export interface Database {
         Returns: Json;
       };
       // ── Completar datos obligatorios al escanear (apps/conteo) ──
-      // (supabase/migrations/20260922000000_completar_datos_obligatorios_al_escanear.sql)
+      // (supabase/migrations/20260922000000_completar_datos_obligatorios_al_escanear.sql,
+      //  modificada por 20260923000000_precio_obligatorio_y_visible_en_conteo.sql)
       /** Lo que apps/conteo baja al empezar un conteo para poder decidir
        * OFFLINE si a un producto le faltan datos obligatorios: la lista
-       * de campos obligatorios de la empresa y los 4 campos NO-PRECIO de
-       * productos_empresa, paginados. SECURITY DEFINER porque
-       * productos_empresa es invisible para un operario a propósito.
-       * Nunca devuelve costo ni precio. */
+       * de campos obligatorios de la empresa y los 5 campos de
+       * productos_empresa que ese subconjunto incluye (codigo_proveedor,
+       * distribuidor, lote_catalogo, lote_catalogo_2 y precio), paginados.
+       * SECURITY DEFINER porque productos_empresa es invisible para un
+       * operario a propósito. Devuelve el precio de VENTA desde
+       * 20260923000000; nunca devuelve `costo`. */
       datos_completitud_catalogo_conteo: {
         Args: { p_offset?: number; p_limit?: number };
         Returns: Json;
       };
       /** Llena los huecos de datos obligatorios de un producto (nunca
-       * pisa un dato que ya estaba) desde el popup de conteo. Con
-       * p_campos = {} es una lectura pura de los valores actuales.
-       * Cualquier perfil con rol, operarios incluidos. */
+       * pisa un dato que ya estaba, precio incluido) desde el popup de
+       * conteo. Con p_campos = {} es una lectura pura de los valores
+       * actuales. Cualquier perfil con rol, operarios incluidos. */
       completar_datos_producto: {
         Args: { p_producto_id: string; p_campos?: Json };
         Returns: Json;

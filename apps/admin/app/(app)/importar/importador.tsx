@@ -130,9 +130,21 @@ export function Importador({
       });
   }, [supabase]);
 
-  // "nombre" siempre es obligatorio (lo exige el match-por-nombre sin
-  // código) — el resto lo decide cada empresa desde /configuracion.
-  const esRequerido = (campo: string) => campo === "nombre" || camposRequeridos.includes(campo);
+  // Dos obligatorios del SISTEMA, que ninguna empresa puede destildar
+  // (por eso están hardcodeados acá y no salen de `camposRequeridos`):
+  //
+  //  - "nombre": lo exige el match-por-nombre de las filas sin código.
+  //  - "precio": desde
+  //    20260923000000_precio_obligatorio_y_visible_en_conteo.sql un
+  //    producto no entra al sistema sin precio de venta. El servidor
+  //    rechaza fila por fila con el motivo 'falta_precio', así que
+  //    exigir la columna mapeada acá es sólo adelantar ese rechazo al
+  //    paso de mapeo en vez de descubrirlo con medio archivo rebotado.
+  //    (Ojo: "costo" NO entra en esto, sigue siendo opcional.)
+  //
+  // El resto lo decide cada empresa desde /configuracion.
+  const esRequerido = (campo: string) =>
+    campo === "nombre" || campo === "precio" || camposRequeridos.includes(campo);
   const camposFaltantes = CAMPOS_SISTEMA.filter((c) => esRequerido(c.campo) && !mapeo[c.campo]);
   const filasOrdenadas = ordenCampos
     .map((campo) => CAMPOS_SISTEMA.find((c) => c.campo === campo))

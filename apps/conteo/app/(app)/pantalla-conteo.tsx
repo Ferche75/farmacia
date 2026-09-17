@@ -123,6 +123,20 @@ function limpiarNumeroDecimal(valor: string): string {
   return limpio.slice(0, primerPunto + 1) + limpio.slice(primerPunto + 1).replace(/\./g, "");
 }
 
+/** El precio del alta manual es obligatorio y tiene que ser un número
+ * POSITIVO. Vive suelto acá arriba porque lo miran dos lugares que tienen
+ * que coincidir sí o sí: el `disabled` del botón "Guardar y contar" y el
+ * guard de guardarProductoCargado. Si divergieran, el botón se habilitaría
+ * para un valor que el guard después rebota en silencio.
+ *
+ * `limpiarNumeroDecimal` ya filtró lo tipeado, pero igual pueden quedar un
+ * "." suelto o un "0" mientras se escribe: Number(".") es NaN y 0 no es un
+ * precio de venta válido para un producto que se está dando de alta. */
+function precioValido(valor: string): boolean {
+  const n = Number(valor);
+  return valor.trim() !== "" && Number.isFinite(n) && n > 0;
+}
+
 export function PantallaConteo({
   meta,
   empresaId,
@@ -162,6 +176,13 @@ export function PantallaConteo({
   const [fotoCapturada, setFotoCapturada] = useState<Blob | null>(null);
   const [formCarga, setFormCarga] = useState({
     nombre: "",
+    // Obligatorio, igual que `nombre`
+    // (20260923000000_precio_obligatorio_y_visible_en_conteo.sql): un
+    // producto no entra al sistema sin precio de venta, y crear_producto_y_contar
+    // rechaza el alta si no llega. Que lo cargue un operario es una decisión
+    // explícita del usuario — el que cuenta tiene la caja en la mano y sabe
+    // a cuánto se vende. El COSTO de compra sigue sin existir en esta app.
+    precio: "",
     laboratorio: "",
     sku: "",
     concentracionValor: "",
@@ -539,6 +560,7 @@ export function PantallaConteo({
       setFotoCapturada(comprimida);
       setFormCarga({
         nombre: "",
+        precio: "",
         laboratorio: "",
         sku: "",
         concentracionValor: "",
@@ -562,6 +584,8 @@ export function PantallaConteo({
   // sincronizar después.
   async function guardarProductoCargado() {
     if (feedback?.tipo !== "no_encontrado" || !formCarga.nombre.trim()) return;
+    // Mismo criterio que el `disabled` del botón — ver precioValido.
+    if (!precioValido(formCarga.precio)) return;
 
     setGuardandoProducto(true);
     setErrorCarga(null);
@@ -571,6 +595,9 @@ export function PantallaConteo({
         : null;
       const nuevoProducto: NuevoProductoManual = {
         nombre: formCarga.nombre.trim(),
+        // Requerido por el tipo y por el RPC. El guard de arriba ya
+        // garantizó que esto es un número > 0.
+        precio: Number(formCarga.precio),
         laboratorio: formCarga.laboratorio || null,
         principio_activo: formCarga.principioActivo.trim() || null,
         accion_terapeutica: formCarga.accionTerapeutica.trim() || null,
@@ -960,6 +987,19 @@ export function PantallaConteo({
                 placeholder="Nombre *"
                 autoFocus
               />
+              {/* Precio: obligatorio igual que el nombre, y por eso va
+                  pegado a él y no abajo con el resto de los opcionales.
+                  Numérico como `contenido`: type="text" + inputMode, que en
+                  varios teclados de Android es la única forma de poder
+                  tipear los dígitos (ver limpiarNumeroDecimal). */}
+              <input
+                className={CAMPO}
+                type="text"
+                inputMode="decimal"
+                value={formCarga.precio}
+                onChange={(e) => setFormCarga({ ...formCarga, precio: limpiarNumeroDecimal(e.target.value) })}
+                placeholder="Precio *"
+              />
               <input
                 className={CAMPO}
                 value={formCarga.laboratorio}
@@ -1032,7 +1072,9 @@ export function PantallaConteo({
               <div className="flex items-center gap-3 pt-1">
                 <button
                   onClick={guardarProductoCargado}
-                  disabled={guardandoProducto || !formCarga.nombre.trim()}
+                  disabled={
+                    guardandoProducto || !formCarga.nombre.trim() || !precioValido(formCarga.precio)
+                  }
                   className="flex-1 rounded-full bg-danger px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {guardandoProducto ? "Guardando…" : "Guardar y contar"}
@@ -1242,8 +1284,12 @@ export function PantallaConteo({
           abierto no se contó nada, y el escaneo se aplica recién al
           guardar. Solo se piden los campos que REALMENTE faltan (contra el
           dato fresco del servidor, no contra el snapshot local) y que esta
-          empresa marcó como obligatorios — nunca costo ni precio, que no
-          entran en apps/conteo por ninguna vía. */}
+          empresa marcó como obligatorios — nunca `costo`, que no entra en
+          apps/conteo por ninguna vía. `precio` sí puede aparecer acá desde
+          20260923000000, si la empresa lo tiene entre sus obligatorios: no
+          hace falta nada especial en este JSX, que se arma solo a partir de
+          `completando.faltantes` + LABEL_CAMPO + CAMPOS_NUMERICOS (que ya
+          sabe que precio es numérico y le pone inputMode="decimal"). */}
       {completando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-strong/50 p-4">
           <div className="max-h-full w-full max-w-sm overflow-auto rounded-2xl bg-surface p-5 shadow-xl">

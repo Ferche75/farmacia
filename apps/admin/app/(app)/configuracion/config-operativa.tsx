@@ -99,15 +99,28 @@ export function ConfigOperativa({ config }: { config: ConfigOperativaEmpresa }) 
         <div className="border-t border-line pt-6 2xl:border-l 2xl:border-t-0 2xl:pl-10 2xl:pt-0">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">Campos obligatorios al importar</h3>
           <p className="mt-1 text-xs leading-relaxed text-muted">
-            &quot;Nombre&quot; siempre es obligatorio. Marcá qué más tiene que estar mapeado antes de dejar
-            previsualizar una importación en tu empresa.
+            &quot;Nombre&quot; y &quot;Precio&quot; siempre son obligatorios. Marcá qué más tiene que estar
+            mapeado antes de dejar previsualizar una importación en tu empresa.
           </p>
+          {/* Las dos filas fijas de arriba no son checkboxes de verdad: son
+              obligatorios del sistema, no de esta empresa, así que se
+              muestran tildados y deshabilitados y no entran en
+              `camposRequeridos`. "Precio" pasó a ser uno de ellos en
+              20260923000000_precio_obligatorio_y_visible_en_conteo.sql — un
+              producto no entra al sistema sin precio de venta, por ningún
+              camino, así que dejarlo como opción destildable mentía. Ojo:
+              "Costo" sigue siendo un checkbox normal más abajo, es otra
+              cosa (precio de compra al proveedor) y sigue siendo opcional. */}
           <div className="mt-4 grid gap-x-6 gap-y-2.5 text-sm sm:grid-cols-2 xl:grid-cols-3">
             <label className="flex items-start gap-2 text-muted">
               <input type="checkbox" checked disabled className="mt-0.5 h-4 w-4 shrink-0 accent-brand" />
               <span>Nombre (siempre)</span>
             </label>
-            {CAMPOS_SISTEMA.filter((c) => c.campo !== "nombre").map((c) => (
+            <label className="flex items-start gap-2 text-muted">
+              <input type="checkbox" checked disabled className="mt-0.5 h-4 w-4 shrink-0 accent-brand" />
+              <span>Precio (siempre)</span>
+            </label>
+            {CAMPOS_SISTEMA.filter((c) => c.campo !== "nombre" && c.campo !== "precio").map((c) => (
               <label key={c.campo} className="flex items-start gap-2 text-ink">
                 <input
                   type="checkbox"

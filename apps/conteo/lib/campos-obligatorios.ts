@@ -16,13 +16,23 @@ import type { ProductoLocal } from "./db";
 //   * un campo que está en SQL pero no acá ⇒ nunca se pide, y el dato
 //     obligatorio que la farmacia configuró no se llena nunca.
 //
-// COSTO Y PRECIO NO ESTÁN, Y NO PUEDEN ESTAR (CONTEXTO.md regla 1/3).
-// apps/conteo lo usan operarios: no ven ni escriben precios. Aunque la
-// empresa los tenga tildados en "Campos obligatorios al importar" —que es
-// perfectamente válido para el importador de CSV— acá se ignoran. La
-// defensa está repetida a propósito en las 3 capas: este array, el
+// COSTO NO ESTÁ, Y NO PUEDE ESTAR. `costo` es el precio de COMPRA al
+// proveedor: no baja al dispositivo, no se pide y no se escribe desde acá.
+// Aunque la empresa lo tenga tildado en "Campos obligatorios al importar"
+// —que es perfectamente válido para el importador de CSV— acá se ignora.
+// La defensa está repetida a propósito en las 3 capas: este array, el
 // whitelist de SQL, y el hecho de que ninguna query ni RPC del lado de
-// conteo selecciona esas columnas.
+// conteo selecciona esa columna.
+//
+// PRECIO SÍ ESTÁ, desde
+// supabase/migrations/20260923000000_precio_obligatorio_y_visible_en_conteo.sql.
+// Es una reversión deliberada y acotada de lo que decía este mismo
+// comentario hasta esa migración ("costo y precio no pueden estar, punto"):
+// el usuario pidió explícitamente que los operarios vean y carguen el
+// precio de VENTA, porque quien está contando tiene la caja en la mano y
+// sabe a cuánto se vende. Es el único campo de precio que cruzó la línea;
+// `costo` siguió del otro lado y la prohibición de arriba sigue siendo
+// absoluta para él.
 //
 // codigoBarra y unidadesPorCodigo tampoco están: el producto se encontró
 // JUSTAMENTE por su código de barras, y unidades_por_codigo es un
@@ -42,8 +52,17 @@ const CAMPOS_GLOBALES = [
   "unidad",
 ] as const;
 
-/** Los campos de `productos_empresa` (por empresa) que se pueden completar. */
-const CAMPOS_EMPRESA = ["codigoProveedor", "distribuidor", "loteCatalogo", "loteCatalogo2"] as const;
+/** Los campos de `productos_empresa` (por empresa) que se pueden completar.
+ * `precio` vive en esa tabla igual que los otros cuatro (es por empresa, no
+ * global), así que va en este grupo — con la salvedad de que es numeric y
+ * no texto: ver CAMPOS_NUMERICOS. */
+const CAMPOS_EMPRESA = [
+  "codigoProveedor",
+  "distribuidor",
+  "loteCatalogo",
+  "loteCatalogo2",
+  "precio",
+] as const;
 
 export const CAMPOS_COMPLETABLES_CONTEO = [...CAMPOS_GLOBALES, ...CAMPOS_EMPRESA] as const;
 
@@ -67,11 +86,13 @@ export const LABEL_CAMPO: Record<CampoCompletable, string> = {
   distribuidor: "Distribuidor",
   loteCatalogo: "Lote",
   loteCatalogo2: "Lote 2",
+  precio: "Precio",
 };
 
-/** `contenido` es numeric en la base; el resto son texto libre. Lo usa el
- * popup para elegir el inputMode del campo. */
-export const CAMPOS_NUMERICOS: readonly CampoCompletable[] = ["contenido"];
+/** `contenido` y `precio` son numeric en la base; el resto son texto libre.
+ * Lo usa el popup para elegir el inputMode del campo (y para filtrar lo
+ * tipeado con limpiarNumeroDecimal). */
+export const CAMPOS_NUMERICOS: readonly CampoCompletable[] = ["contenido", "precio"];
 
 function esCampoCompletable(campo: string): campo is CampoCompletable {
   return (CAMPOS_COMPLETABLES_CONTEO as readonly string[]).includes(campo);
@@ -113,6 +134,15 @@ function valorLocal(producto: ProductoLocal, campo: CampoCompletable): string | 
       return producto.loteCatalogo ?? null;
     case "loteCatalogo2":
       return producto.loteCatalogo2 ?? null;
+    case "precio":
+      // numeric en la base, igual que `contenido`: se compara como string
+      // porque camposFaltantes sólo mira "vacío o no". Ojo con el 0 —
+      // String(0) es "0", que no es blanco, así que un precio 0 cuenta
+      // como cargado. Es lo correcto: 0 es un precio (raro pero válido) y
+      // el hueco que este chequeo busca es el null.
+      return producto.precio === null || producto.precio === undefined
+        ? null
+        : String(producto.precio);
   }
 }
 

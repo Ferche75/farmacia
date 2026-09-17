@@ -11,13 +11,14 @@ const TAMANO_PAGINA = 1000;
 // Las columnas nuevas (principio_activo, categoria, marca,
 // accion_terapeutica, especialidad, fabricante) entran acá SOLO para poder
 // decidir offline si al producto le falta algún dato obligatorio — ver
-// lib/campos-obligatorios.ts. Siguen sin estar costo ni precio: no viven
-// en `productos` ni en `codigos_barra`, así que no hay forma de traerlos
-// por este join ni por accidente.
+// lib/campos-obligatorios.ts. Acá no hay ni costo ni precio: ninguno de
+// los dos vive en `productos` ni en `codigos_barra`, así que no hay forma
+// de traerlos por este join ni por accidente. El precio llega por el otro
+// camino, el overlay de productos_empresa (ver descargarOverlayEmpresa).
 const SELECT_CODIGO_CON_PRODUCTO =
   "codigo_norm, producto_id, unidades_por_codigo, productos(nombre, concentracion, forma, contenido, unidad, principio_activo, categoria, marca, accion_terapeutica, especialidad, fabricante, laboratorios(nombre))";
 
-/** Los 4 campos de productos_empresa, indexados por producto_id. Ver
+/** Los 5 campos de productos_empresa, indexados por producto_id. Ver
  * `descargarOverlayEmpresa` para por qué llegan por un RPC y no por un
  * select ni por un embed de PostgREST. */
 type OverlayPorProducto = Map<string, OverlayEmpresaProducto>;
@@ -49,6 +50,7 @@ function filaAProductoLocal(
     distribuidor: pe?.distribuidor ?? null,
     loteCatalogo: pe?.lote_catalogo ?? null,
     loteCatalogo2: pe?.lote_catalogo_2 ?? null,
+    precio: pe?.precio ?? null,
     datosCompletos: true,
   };
 
@@ -92,16 +94,19 @@ interface FilaCodigoBarra {
  *  - `productos_empresa` es INVISIBLE para un operario. La policy
  *    productos_empresa_select (20260806000001) es literalmente
  *    `empresa_id = mi_empresa_id() and mi_rol() <> 'operario'`, y está así
- *    a propósito: es la barrera de costo/precio, puesta en la base y no en
- *    el frontend. Un `.select()` (o un embed
+ *    a propósito: la fila entera incluye `costo`, y esa es la barrera. Un
+ *    `.select()` (o un embed
  *    `codigos_barra → productos → productos_empresa`, que PostgREST sí
  *    sabe resolver por la FK productos_empresa.producto_id) no daría
  *    error: daría CERO FILAS, y entonces codigo_proveedor/distribuidor/
  *    lote_catalogo se verían siempre vacíos y el popup se dispararía para
  *    siempre, en todos los productos. Aflojar esa policy para que el
- *    operario pueda leer la tabla sería abrirle costo y precio: justo lo
- *    prohibido. Un RPC SECURITY DEFINER que selecciona 4 columnas
- *    elegidas a mano da el acceso sin tocar la barrera.
+ *    operario pueda leer la tabla le abriría el costo de compra de golpe:
+ *    justo lo prohibido. Un RPC SECURITY DEFINER que selecciona 5 columnas
+ *    elegidas a mano da el acceso sin tocar la barrera — y desde
+ *    20260923000000 una de esas 5 es `precio`, sumada a propósito (el
+ *    usuario pidió que los operarios vean y carguen el precio de venta).
+ *    `costo` sigue sin estar entre las elegidas.
  *  - `empresas.config` sí lo puede leer un operario, pero ese jsonb
  *    también guarda n8n_webhook_secret (20260806000006): traerse la
  *    columna entera al IndexedDB de un teléfono para sacarle una lista de
@@ -130,11 +135,11 @@ async function descargarOverlayEmpresa(
 
 /** Baja SOLO código, nombre, laboratorio, presentación y los campos de
  * clasificación que hacen falta para el chequeo de datos obligatorios —
- * nunca costo ni precio (CONTEXTO.md regla 3). De `productos`/
- * `codigos_barra` no hay riesgo: esas columnas ni existen ahí. De
- * `productos_empresa`, que sí las tiene, lo único que baja son los 4
- * campos no-precio que devuelve datos_completitud_catalogo_conteo, un RPC
- * que los selecciona a mano (ver descargarOverlayEmpresa). */
+ * nunca `costo`. De `productos`/`codigos_barra` no hay riesgo: esa columna
+ * ni existe ahí. De `productos_empresa`, que sí la tiene, lo único que baja
+ * son los 5 campos que devuelve datos_completitud_catalogo_conteo, un RPC
+ * que los selecciona a mano (ver descargarOverlayEmpresa) — cuatro de texto
+ * más el `precio` de venta, que baja a propósito desde 20260923000000. */
 export async function descargarCatalogo(
   onProgreso: (p: ProgresoDescarga) => void
 ): Promise<number> {
@@ -205,13 +210,15 @@ export async function descargarCatalogo(
  * los cambios en `productos_empresa` y en `empresas.config` no llegan en
  * vivo. Realtime respeta la RLS de quien escucha (ver el comentario de
  * 20260814000001), y la de productos_empresa excluye al operario justo
- * para tapar costo/precio: sumar esa tabla a la publicación no le
- * llegaría igual, y sí expondría la fila ENTERA —costo y precio incluidos—
- * a cualquier sesión que sí pase la policy. Con `empresas` es peor: la
- * fila trae config, o sea n8n_webhook_secret. Ninguna de las dos se toca.
+ * para tapar el costo: sumar esa tabla a la publicación no le llegaría
+ * igual, y sí expondría la fila ENTERA —costo incluido— a cualquier sesión
+ * que sí pase la policy. Con `empresas` es peor: la fila trae config, o sea
+ * n8n_webhook_secret. Ninguna de las dos se toca. Que `precio` ahora sí
+ * pueda bajar al dispositivo no cambia nada de esto: baja por el RPC que
+ * elige columnas a mano, no abriendo la tabla.
  *
  * El agujero que eso deja es chico y se tapa solo:
- *  - si alguien completa los 4 campos de empresa desde el panel mientras
+ *  - si alguien completa los 5 campos de empresa desde el panel mientras
  *    el conteo está abierto, el snapshot local queda viejo — pero justo
  *    antes de abrir el popup se re-consulta el dato fresco al servidor
  *    (completarDatosProducto con campos vacíos), así que el popup NO
@@ -230,7 +237,7 @@ export function suscribirCambiosCatalogo(): () => void {
   // El overlay de productos_empresa no viaja por realtime (ver arriba), así
   // que al refrescar una fila se arrastra lo que ya sabía la fila local de
   // ese mismo producto. Si el producto es nuevo para este dispositivo, no
-  // hay overlay que arrastrar y esos 4 campos quedan en null — el popup lo
+  // hay overlay que arrastrar y esos 5 campos quedan en null — el popup lo
   // resuelve consultando al servidor antes de mostrarse.
   async function refrescarPorProducto(productoId: string) {
     const meta = await db.meta.get("actual");
@@ -252,6 +259,7 @@ export function suscribirCambiosCatalogo(): () => void {
         distribuidor: previa.distribuidor ?? null,
         lote_catalogo: previa.loteCatalogo ?? null,
         lote_catalogo_2: previa.loteCatalogo2 ?? null,
+        precio: previa.precio ?? null,
       });
     }
 

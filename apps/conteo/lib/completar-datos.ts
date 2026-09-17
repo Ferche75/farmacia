@@ -14,8 +14,10 @@ import { calcularDatosCompletos, camposFaltantes, type CampoCompletable } from "
 // Quien llama tiene que chequear `sinConexion()` antes y frenar el
 // escaneo con un mensaje, nunca dejarlo pasar en silencio.
 //
-// Acá tampoco hay costo ni precio: el RPC que está del otro lado no los
-// selecciona ni los acepta, y DatosCompletablesProducto no los tiene.
+// Acá no hay `costo`: el RPC que está del otro lado no lo selecciona ni lo
+// acepta, y DatosCompletablesProducto no lo tiene. `precio` sí, desde
+// supabase/migrations/20260923000000_precio_obligatorio_y_visible_en_conteo.sql
+// — ver el comentario de cabecera de lib/campos-obligatorios.ts.
 
 /** Mismo chequeo que usa motor-sync.ts para decidir si intentar mandar la
  * cola — no hay otro mecanismo de detección de conectividad en esta app. */
@@ -58,6 +60,10 @@ async function volcarAlCatalogo(
     distribuidor: datos.distribuidor,
     loteCatalogo: datos.loteCatalogo,
     loteCatalogo2: datos.loteCatalogo2,
+    // Sin esto el precio recién guardado no llegaría al catálogo local y
+    // camposFaltantes lo seguiría viendo vacío: popup infinito en el
+    // próximo escaneo del mismo producto.
+    precio: datos.precio,
   };
 
   const filas = await db.catalogo.where("productoId").equals(productoId).toArray();

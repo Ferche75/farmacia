@@ -1,8 +1,11 @@
 import Dexie, { type EntityTable } from "dexie";
 
-// IndexedDB local. CONTEXTO.md regla 1: el catálogo NUNCA incluye
-// costo/precio acá — ni siquiera existe la columna, así que no hay riesgo
-// de que se filtre por accidente.
+// IndexedDB local. El catálogo NUNCA incluye `costo` (el precio de COMPRA
+// al proveedor): ni siquiera existe el campo en ProductoLocal, así que no
+// hay riesgo de que se filtre por accidente. `precio` (el de VENTA) sí
+// está, desde
+// supabase/migrations/20260923000000_precio_obligatorio_y_visible_en_conteo.sql
+// — decisión explícita del usuario, ver lib/campos-obligatorios.ts.
 
 export interface ProductoLocal {
   codigoNorm: string; // primary key
@@ -26,10 +29,11 @@ export interface ProductoLocal {
   // completa del catálogo (que pasa al empezar cualquier conteo nuevo) los
   // rellena sola.
   //
-  // NO HAY, NI PUEDE HABER, costo NI precio acá: CONTEXTO.md regla 1/3.
-  // Los campos "de empresa" de abajo son los ÚNICOS 4 de
-  // productos_empresa que bajan al dispositivo, y llegan por un RPC que
-  // selecciona esas 4 columnas a mano (datos_completitud_catalogo_conteo).
+  // NO HAY, NI PUEDE HABER, `costo` acá. Los campos "de empresa" de abajo
+  // son los ÚNICOS 5 de productos_empresa que bajan al dispositivo, y
+  // llegan por un RPC que selecciona esas 5 columnas a mano
+  // (datos_completitud_catalogo_conteo) — el costo no está entre ellas y
+  // la policy de la tabla sigue tapando la fila entera para un operario.
 
   /** De `productos` (global). */
   principioActivo?: string | null;
@@ -44,6 +48,12 @@ export interface ProductoLocal {
   distribuidor?: string | null;
   loteCatalogo?: string | null;
   loteCatalogo2?: string | null;
+  /** Precio de VENTA al público de ESTA empresa. El único campo de precio
+   * que baja al dispositivo, y baja a propósito desde 20260923000000: el
+   * usuario pidió que los operarios lo vean y lo puedan cargar. `costo`
+   * sigue sin bajar. Numérico, a diferencia de los otros cuatro de este
+   * grupo. */
+  precio?: number | null;
 
   /** Derivado, calculado al sincronizar el catálogo (descarga inicial,
    * realtime y después de completar el popup) — NO al leer. El camino
@@ -127,8 +137,9 @@ export interface MetaConteo {
   catalogoTotal: number;
   /** Los campos que ESTA empresa declaró obligatorios (Configuración →
    * "Campos obligatorios al importar"), ya filtrados por el servidor al
-   * subconjunto que se puede completar desde acá — sin costo ni precio,
-   * nunca. Se baja una vez junto con el catálogo.
+   * subconjunto que se puede completar desde acá — sin `costo`, nunca
+   * (`precio` sí entra desde 20260923000000). Se baja una vez junto con el
+   * catálogo.
    *
    * Opcional: un meta escrito por una versión anterior no lo tiene, y en
    * ese caso no hay nada obligatorio que chequear (mismo efecto que una

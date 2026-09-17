@@ -927,6 +927,31 @@ export function ProductosAbm({
     setGuardando(true);
     setError(null);
     try {
+      // ── Precio: obligatorio SIEMPRE ────────────────────────────
+      // (supabase/migrations/20260923000000_precio_obligatorio_y_visible_en_conteo.sql)
+      // Hasta esa migración esto vivía adentro del `if (fraccionaAhora)`
+      // de abajo, así que un producto normal se podía guardar sin precio y
+      // el precio solo era obligatorio como "base de los otros dos
+      // niveles" del fraccionamiento. Ahora es incondicional y no
+      // configurable, al mismo nivel que `nombre`: un producto no entra al
+      // sistema sin precio de venta, ni por acá, ni por el importador
+      // (motivo de rechazo 'falta_precio'), ni por el alta manual de
+      // apps/conteo. Aplica igual a un alta y a una edición — si alguien
+      // abre un producto viejo sin precio, esta pantalla es justamente
+      // donde se tapa ese hueco.
+      //
+      // El mensaje cambia según el modo porque en fraccionable el precio
+      // de la caja además es la base de precio_blister/precio_unidad, y
+      // explicarlo ahí ayuda; en un producto normal alcanza con pedirlo.
+      // `costo` sigue siendo opcional: esto es sobre el precio de VENTA.
+      if (!form.precio.trim()) {
+        throw new Error(
+          fraccionaAhora
+            ? "Cargá al menos el precio de la caja: es la base de los otros dos niveles."
+            : "Cargá el precio del producto."
+        );
+      }
+
       // ── Validaciones del bloque de fraccionamiento ─────────────
       // Solo el formulario valida esto: la base no lleva CHECK a
       // propósito (ver 20260918000000). Si el bloque no se está
@@ -938,9 +963,6 @@ export function ProductosAbm({
           throw new Error(
             "Un producto fraccionable necesita cuántas unidades trae el blíster y cuántos blísteres la caja (ambos mayores a 0)."
           );
-        }
-        if (!form.precio.trim()) {
-          throw new Error("Cargá al menos el precio de la caja: es la base de los otros dos niveles.");
         }
       }
 
@@ -1656,7 +1678,12 @@ export function ProductosAbm({
                   onChange={(e) => setForm({ ...form, costo: e.target.value })}
                 />
               </Campo>
-              <Campo label={fraccionaAhora ? "Precio (caja) *" : "Precio"}>
+              {/* El asterisco ya no depende de `fraccionaAhora`: desde
+                  20260923000000 el precio es obligatorio siempre (ver
+                  `guardar`). Lo único que cambia con el fraccionamiento es
+                  que se aclare que es el precio de la CAJA, porque ahí
+                  conviven tres niveles de precio. */}
+              <Campo label={fraccionaAhora ? "Precio (caja) *" : "Precio *"}>
                 <input
                   type="number"
                   className="input"
