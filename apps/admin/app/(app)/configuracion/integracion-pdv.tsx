@@ -55,17 +55,6 @@ export function IntegracionPdv({
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // El destino se elige ACÁ, al generar el código, y viaja hasta el POS en
-  // el canje: es el único momento en que la persona que sabe a qué
-  // sucursal corresponde la caja está mirando la pantalla. Precargado con
-  // lo que ya tenía la integración (cambiar de sucursal es re-generar el
-  // código), o con la única sucursal si hay una sola.
-  const [sucursalId, setSucursalId] = useState(
-    estadoInicial.sucursalId ?? (sucursales.length === 1 ? sucursales[0].id : "")
-  );
-  const [bodegaId, setBodegaId] = useState(estadoInicial.bodegaId ?? "");
-
-  const bodegasDeSucursal = bodegas.filter((b) => b.sucursal_id === sucursalId);
   const nombreSucursal = (id: string | null) =>
     sucursales.find((s) => s.id === id)?.nombre ?? null;
   const nombreBodega = (id: string | null) => bodegas.find((b) => b.id === id)?.nombre ?? null;
@@ -74,21 +63,25 @@ export function IntegracionPdv({
     estado.codigoExpiraAt !== null && new Date(estado.codigoExpiraAt) <= new Date();
   const codigoVigente = estado.codigoInvitacion && !vencido ? estado.codigoInvitacion : null;
 
-  function cambiarSucursal(id: string) {
-    setSucursalId(id);
-    // La bodega elegida deja de tener sentido si es de otra sucursal (el
-    // RPC lo rechaza), así que se limpia en vez de dejarla inconsistente.
-    setBodegaId("");
-  }
-
+  // Pedido explícito del usuario: nada de elegir sucursal en esta pantalla,
+  // ni "opciones avanzadas". El destino por defecto se resuelve solo,
+  // puertas adentro, con la primera sucursal activa — la persona que
+  // genera el código no lo ve ni lo elige. Quién vende contra qué sucursal
+  // se reparte después, del lado de pdvlat (ver la descripción de la
+  // sección). El RPC igual exige una sucursal (no hay a dónde descontar
+  // stock sin ninguna), así que el botón ni se muestra si `sucursales` está
+  // vacío — ver más abajo.
   async function generar() {
+    const primeraSucursal = sucursales[0];
+    if (!primeraSucursal) return;
+
     setGenerando(true);
     setError(null);
     try {
       const supabase = createBrowserClient();
       const resultado: CodigoInvitacionPdv = await generarCodigoInvitacionPdv(supabase, {
-        sucursalId,
-        bodegaId: bodegaId || null,
+        sucursalId: primeraSucursal.id,
+        bodegaId: null,
       });
       setEstado({
         vinculado: resultado.vinculado,
@@ -157,83 +150,26 @@ export function IntegracionPdv({
           descontar el stock.
         </p>
       ) : (
-        <div className="mt-5">
-          {/* El selector de abajo se lee fácil como "elegí QUÉ sucursal
-              conectar", cuando en realidad el código ya conecta TODA la
-              empresa (una sola vinculación, no una por sucursal) — esto
-              solo fija el destino por defecto de las ventas que el punto
-              de venta todavía no repartió entre sucursales. Pedido
-              explícito del usuario tras un cliente confundido con la
-              pantalla vieja. */}
-          <p className="mb-4 rounded-md border border-line bg-paper px-3.5 py-2.5 text-sm text-ink">
-            Este código conecta <span className="font-medium">toda tu empresa</span> con pdvlat — vas a poder
-            repartir cada sucursal entre tus puntos de venta desde el panel de pdvlat. Acá elegí solo cuál va
-            a ser el destino <span className="font-medium">por defecto</span> si el punto de venta no elige
-            otra.
-          </p>
-          <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink">Sucursal *</label>
-            <select
-              value={sucursalId}
-              onChange={(e) => cambiarSucursal(e.target.value)}
-              className="input"
-            >
-              <option value="">Elegí una sucursal…</option>
-              {sucursales.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.nombre}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1.5 text-xs text-muted">
-              El punto de venta descuenta stock de acá salvo que elija otra sucursal desde el panel de pdvlat.
-            </p>
-          </div>
-
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-ink">Bodega</label>
-            <select
-              value={bodegaId}
-              onChange={(e) => setBodegaId(e.target.value)}
-              disabled={!sucursalId || bodegasDeSucursal.length === 0}
-              className="input disabled:opacity-50"
-            >
-              <option value="">Toda la sucursal</option>
-              {bodegasDeSucursal.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.nombre}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1.5 text-xs text-muted">
-              Opcional. Dejalo en “toda la sucursal” si no separás stock por bodega.
-            </p>
-          </div>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={generar}
+          disabled={generando}
+          className="mt-5 rounded-md bg-brand px-3.5 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {generando
+            ? "Generando…"
+            : codigoVigente
+              ? "Generar otro código de vinculación con pdvlat"
+              : "Generar código de vinculación con pdvlat"}
+        </button>
       )}
-
-      <button
-        type="button"
-        onClick={generar}
-        disabled={generando || !sucursalId}
-        className="mt-5 rounded-md bg-brand px-3.5 py-2 text-sm font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
-      >
-        {generando
-          ? "Generando…"
-          : codigoVigente
-            ? "Generar otro código de vinculación con pdvlat"
-            : "Generar código de vinculación con pdvlat"}
-      </button>
 
       {error ? (
         <p className="mt-2.5 text-sm text-danger">{error}</p>
       ) : (
         <p className="mt-2.5 text-xs text-muted">
           Generar un código nuevo anula el anterior, pero no corta la integración que ya esté
-          andando: eso recién pasa cuando alguien canjea el código nuevo. Cambiar de sucursal acá
-          también necesita que el punto de venta canjee el código nuevo para enterarse.
+          andando: eso recién pasa cuando alguien canjea el código nuevo.
         </p>
       )}
     </div>
