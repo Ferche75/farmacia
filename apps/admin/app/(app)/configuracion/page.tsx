@@ -212,8 +212,8 @@ export default async function ConfiguracionPage() {
         </Seccion>
 
         <Seccion
-          titulo="Punto de venta"
-          descripcion="Conectá tu sistema de caja para que descuente el stock apenas vende, sin esperar al próximo conteo. El catálogo lo sigue mandando Farmacia."
+          titulo="Vinculación con pdvlat"
+          descripcion="Un solo código conecta TODA tu empresa con pdvlat — no hace falta un código por sucursal. Conectá tu sistema de caja para que descuente el stock apenas vende, sin esperar al próximo conteo. El catálogo lo sigue mandando Farmacia."
         >
           {/* Se reusan las mismas listas que la sección "Sucursales y
               bodegas" — ya vienen cargadas y el selector solo ofrece las

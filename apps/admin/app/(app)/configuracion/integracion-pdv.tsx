@@ -157,7 +157,21 @@ export function IntegracionPdv({
           descontar el stock.
         </p>
       ) : (
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+        <div className="mt-5">
+          {/* El selector de abajo se lee fácil como "elegí QUÉ sucursal
+              conectar", cuando en realidad el código ya conecta TODA la
+              empresa (una sola vinculación, no una por sucursal) — esto
+              solo fija el destino por defecto de las ventas que el punto
+              de venta todavía no repartió entre sucursales. Pedido
+              explícito del usuario tras un cliente confundido con la
+              pantalla vieja. */}
+          <p className="mb-4 rounded-md border border-line bg-paper px-3.5 py-2.5 text-sm text-ink">
+            Este código conecta <span className="font-medium">toda tu empresa</span> con pdvlat — vas a poder
+            repartir cada sucursal entre tus puntos de venta desde el panel de pdvlat. Acá elegí solo cuál va
+            a ser el destino <span className="font-medium">por defecto</span> si el punto de venta no elige
+            otra.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className="mb-1.5 block text-sm font-medium text-ink">Sucursal *</label>
             <select
@@ -173,7 +187,7 @@ export function IntegracionPdv({
               ))}
             </select>
             <p className="mt-1.5 text-xs text-muted">
-              Cada venta de esa caja descuenta stock de esta sucursal.
+              El punto de venta descuenta stock de acá salvo que elija otra sucursal desde el panel de pdvlat.
             </p>
           </div>
 
@@ -196,6 +210,7 @@ export function IntegracionPdv({
               Opcional. Dejalo en “toda la sucursal” si no separás stock por bodega.
             </p>
           </div>
+          </div>
         </div>
       )}
 
@@ -208,8 +223,8 @@ export function IntegracionPdv({
         {generando
           ? "Generando…"
           : codigoVigente
-            ? "Generar otro código"
-            : "Generar código de vinculación"}
+            ? "Generar otro código de vinculación con pdvlat"
+            : "Generar código de vinculación con pdvlat"}
       </button>
 
       {error ? (
