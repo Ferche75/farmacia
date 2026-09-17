@@ -1,5 +1,5 @@
 import { normalizarCodigo } from "@farmacia/db";
-import { db, type LineaLocal } from "./db";
+import { db, type LineaLocal, type ProductoLocal } from "./db";
 
 // Desacoplado de React a propósito: así se puede medir rendimiento con
 // fake-indexeddb en Node (ver scripts/medir-rendimiento-escaneo.ts) sin
@@ -7,7 +7,13 @@ import { db, type LineaLocal } from "./db";
 
 export type ResultadoEscaneo =
   | { tipo: "encontrado"; linea: LineaLocal; unidadesPorCodigo: number }
-  | { tipo: "no_encontrado"; codigoRaw: string; codigoNorm: string | null }
+  | { tipo: "no_encontrado"; codigoNorm: string | null; codigoRaw: string }
+  /** El producto SÍ está en el catálogo, pero le faltan datos que esta
+   * empresa declaró obligatorios. No se contó nada: el escaneo queda
+   * frenado hasta que se completen (ver lib/completar-datos.ts). Quien
+   * llama vuelve a pedir el mismo escaneo con saltarDebounce después de
+   * guardar. */
+  | { tipo: "datos_incompletos"; producto: ProductoLocal; codigoRaw: string }
   | { tipo: "duplicado"; codigoRaw: string }
   | { tipo: "codigo_invalido"; codigoRaw: string };
 
@@ -107,6 +113,19 @@ export async function procesarEscaneo(params: ProcesarEscaneoParams): Promise<Re
 
   if (!producto) {
     return { tipo: "no_encontrado", codigoRaw, codigoNorm };
+  }
+
+  // Gate de datos obligatorios. Es una lectura de un booleano YA calculado
+  // (al bajar/refrescar el catálogo — ver lib/descargar-catalogo.ts), así
+  // que el presupuesto de <100ms sin red del camino de escaneo queda
+  // intacto: acá no se recorre ninguna lista ni se llama a nadie.
+  //
+  // `=== false` y no `!producto.datosCompletos` a propósito: las filas que
+  // quedaron en IndexedDB de una versión anterior no tienen el campo, y
+  // frenar un escaneo por un dato que este dispositivo nunca bajó sería
+  // trabar el conteo por una cuestión de versiones.
+  if (producto.datosCompletos === false) {
+    return { tipo: "datos_incompletos", producto, codigoRaw };
   }
 
   const lineaId = `${conteoId}:${producto.productoId}`;

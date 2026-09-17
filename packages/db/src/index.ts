@@ -24,6 +24,8 @@ export {
   registrarEscaneoDesconocido,
   resolverDesconocido,
   crearProductoYContar,
+  datosCompletitudCatalogo,
+  completarDatosProducto,
   subirFotoDesconocido,
   generarCodigoInvitacionPdv,
   ajustarStock,
@@ -53,6 +55,9 @@ export type {
   ResultadoEscaneoDesconocido,
   NuevoProductoDesdeIA,
   NuevoProductoManual,
+  DatosCompletablesProducto,
+  OverlayEmpresaProducto,
+  DatosCompletitudCatalogo,
   CodigoInvitacionPdv,
   ResultadoAjusteStock,
 } from "./rpc";

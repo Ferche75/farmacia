@@ -311,6 +311,12 @@ export interface FilaImportacion {
   contenido?: string | number;
   unidad?: string;
   principioActivo?: string;
+  /** Del producto (global), igual que principioActivo — columnas de
+   * `productos` desde 20260918000001, cableadas al importador recién en
+   * 20260922000000. */
+  marca?: string;
+  accionTerapeutica?: string;
+  especialidad?: string;
   categoria?: string;
   codigoProveedor?: string;
   /** Laboratorio de ESTA fila — manda sobre el laboratorio elegido para
@@ -399,6 +405,9 @@ function filaImportacionAPayload(f: FilaImportacion): Json {
     contenido: f.contenido ?? null,
     unidad: f.unidad ?? null,
     principio_activo: f.principioActivo ?? null,
+    marca: f.marca ?? null,
+    accion_terapeutica: f.accionTerapeutica ?? null,
+    especialidad: f.especialidad ?? null,
     categoria: f.categoria ?? null,
     codigo_proveedor: f.codigoProveedor ?? null,
     laboratorio: f.laboratorio ?? null,
@@ -585,6 +594,108 @@ export async function crearProductoYContar(
   const resultado = data as { duplicado?: boolean; producto_id?: string; linea_id?: string };
   if (resultado.duplicado) return { duplicado: true };
   return { productoId: resultado.producto_id!, lineaId: resultado.linea_id! };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Completar datos obligatorios al escanear (apps/conteo)
+// ═══════════════════════════════════════════════════════════════
+// (supabase/migrations/20260922000000_completar_datos_obligatorios_al_escanear.sql)
+//
+// NUNCA hay un costo ni un precio en ninguno de estos tipos, y las dos
+// funciones SQL detrás tampoco seleccionan esas columnas: apps/conteo es
+// de operarios y CONTEXTO.md regla 1/3 dice que ahí no entra un precio.
+
+/** Los campos de un producto que el popup de conteo puede completar.
+ * Todos strings salvo `contenido`, que es numeric en la base. `laboratorio`
+ * va como NOMBRE (el RPC lo resuelve/crea con SECURITY DEFINER). */
+export interface DatosCompletablesProducto {
+  producto_id: string;
+  principioActivo: string | null;
+  categoria: string | null;
+  laboratorio: string | null;
+  fabricante: string | null;
+  marca: string | null;
+  accionTerapeutica: string | null;
+  especialidad: string | null;
+  concentracion: string | null;
+  contenido: number | null;
+  unidad: string | null;
+  codigoProveedor: string | null;
+  distribuidor: string | null;
+  loteCatalogo: string | null;
+  loteCatalogo2: string | null;
+  /** La lista de obligatorios de la empresa, ya filtrada por el servidor
+   * al subconjunto completable desde conteo (sin costo/precio). */
+  campos_requeridos: string[];
+}
+
+/** Los 4 campos de productos_empresa que hacen falta para el chequeo de
+ * completitud. Sin costo ni precio, que viven en la misma tabla y NO
+ * salen nunca por este camino. */
+export interface OverlayEmpresaProducto {
+  producto_id: string;
+  codigo_proveedor: string | null;
+  distribuidor: string | null;
+  lote_catalogo: string | null;
+  lote_catalogo_2: string | null;
+}
+
+export interface DatosCompletitudCatalogo {
+  campos_requeridos: string[];
+  /** Cuántas filas de productos_empresa hay para paginar. 0 cuando la
+   * empresa no tiene ningún campo obligatorio de esa tabla — en ese caso
+   * el servidor directamente no manda filas. */
+  total_productos_empresa: number;
+  filas: OverlayEmpresaProducto[];
+}
+
+/** Lo que apps/conteo baja al empezar un conteo para poder decidir SIN RED,
+ * en cada escaneo, si al producto le faltan datos obligatorios.
+ *
+ * Es un RPC y no un `.select()` por dos motivos que están explicados largo
+ * en la migración: `productos_empresa` es invisible para un operario a
+ * propósito (es la barrera de costo/precio, puesta en RLS), y
+ * `empresas.config` guarda n8n_webhook_secret, así que traerse esa columna
+ * entera al teléfono sería filtrar un secreto de arrastre. */
+export async function datosCompletitudCatalogo(
+  supabase: SupabaseClient<Database>,
+  params: { offset?: number; limit?: number } = {}
+): Promise<DatosCompletitudCatalogo> {
+  const { data, error } = await supabase.rpc("datos_completitud_catalogo_conteo", {
+    p_offset: params.offset ?? 0,
+    p_limit: params.limit ?? 1000,
+  });
+
+  if (error) throw error;
+  return data as unknown as DatosCompletitudCatalogo;
+}
+
+/** Completa los datos obligatorios que le faltaban a un producto ya
+ * existente del catálogo, desde el popup que frena el escaneo.
+ *
+ * SOLO LLENA HUECOS: el RPC usa coalesce(columna, nuevo), así que un
+ * operario no puede pisar un dato ya cargado. Las keys se re-validan
+ * server-side contra el subconjunto completable y contra la lista de
+ * obligatorios real de la empresa; las que no pasan se ignoran en
+ * silencio (una key de más no hace perder las buenas).
+ *
+ * Con `campos` vacío ({}) no escribe nada y devuelve los valores
+ * actuales — así se usa para refrescar el dato justo antes de abrir el
+ * popup, en vez de confiar en el snapshot local.
+ *
+ * Requiere estar online, igual que crearProductoYContar: es una llamada
+ * directa, no se encola. */
+export async function completarDatosProducto(
+  supabase: SupabaseClient<Database>,
+  params: { productoId: string; campos?: Record<string, string> }
+): Promise<DatosCompletablesProducto> {
+  const { data, error } = await supabase.rpc("completar_datos_producto", {
+    p_producto_id: params.productoId,
+    p_campos: (params.campos ?? {}) as unknown as Json,
+  });
+
+  if (error) throw error;
+  return data as unknown as DatosCompletablesProducto;
 }
 
 /** Ruta del archivo: empresa_id/conteo_id/archivo.jpg (spec Fase 4) —

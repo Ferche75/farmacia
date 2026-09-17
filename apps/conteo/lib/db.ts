@@ -17,6 +17,43 @@ export interface ProductoLocal {
    * de 10 vs. código de la unidad suelta, que vale 1) — ver
    * codigos_barra.unidades_por_codigo. Default 1. */
   unidadesPorCodigo: number;
+
+  // ── Campos que solo existen para el chequeo de completitud ──
+  // (ver lib/campos-obligatorios.ts). Todos OPCIONALES a propósito, mismo
+  // motivo que unidadesSueltas/esSuelto: las filas que quedaron en
+  // IndexedDB de una versión anterior no los tienen, y no hace falta
+  // migrar el store porque ninguno es un índice — la próxima descarga
+  // completa del catálogo (que pasa al empezar cualquier conteo nuevo) los
+  // rellena sola.
+  //
+  // NO HAY, NI PUEDE HABER, costo NI precio acá: CONTEXTO.md regla 1/3.
+  // Los campos "de empresa" de abajo son los ÚNICOS 4 de
+  // productos_empresa que bajan al dispositivo, y llegan por un RPC que
+  // selecciona esas 4 columnas a mano (datos_completitud_catalogo_conteo).
+
+  /** De `productos` (global). */
+  principioActivo?: string | null;
+  categoria?: string | null;
+  marca?: string | null;
+  accionTerapeutica?: string | null;
+  especialidad?: string | null;
+  fabricante?: string | null;
+
+  /** De `productos_empresa` (de ESTA empresa). */
+  codigoProveedor?: string | null;
+  distribuidor?: string | null;
+  loteCatalogo?: string | null;
+  loteCatalogo2?: string | null;
+
+  /** Derivado, calculado al sincronizar el catálogo (descarga inicial,
+   * realtime y después de completar el popup) — NO al leer. El camino
+   * caliente del escaneo tiene un presupuesto de <100ms y lee esto como
+   * un booleano y nada más; recalcularlo por escaneo sería recorrer la
+   * lista de campos obligatorios en cada lectura del lector.
+   *
+   * `undefined` en filas viejas: tratarlo como `true` (no frenar un
+   * escaneo por un dato que este dispositivo todavía no bajó). */
+  datosCompletos?: boolean;
 }
 
 export interface LineaLocal {
@@ -88,6 +125,15 @@ export interface MetaConteo {
   catalogoListo: boolean;
   catalogoDescargadoAt: number | null;
   catalogoTotal: number;
+  /** Los campos que ESTA empresa declaró obligatorios (Configuración →
+   * "Campos obligatorios al importar"), ya filtrados por el servidor al
+   * subconjunto que se puede completar desde acá — sin costo ni precio,
+   * nunca. Se baja una vez junto con el catálogo.
+   *
+   * Opcional: un meta escrito por una versión anterior no lo tiene, y en
+   * ese caso no hay nada obligatorio que chequear (mismo efecto que una
+   * lista vacía). Leer siempre con `?? []`. */
+  camposRequeridosImportacion?: string[];
 }
 
 // ═══════════════════════════════════════════════════════════════

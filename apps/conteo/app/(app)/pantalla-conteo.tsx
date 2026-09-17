@@ -19,7 +19,13 @@ import {
   normalizarCodigo,
   type NuevoProductoManual,
 } from "@farmacia/db";
-import { db, type LineaLocal, type LineaDesconocidoLocal, type MetaConteo } from "@/lib/db";
+import { db, type LineaLocal, type LineaDesconocidoLocal, type MetaConteo, type ProductoLocal } from "@/lib/db";
+import {
+  CAMPOS_NUMERICOS,
+  LABEL_CAMPO,
+  type CampoCompletable,
+} from "@/lib/campos-obligatorios";
+import { sinConexion, verificarDatosEnServidor, guardarDatosFaltantes } from "@/lib/completar-datos";
 import {
   procesarEscaneo,
   deshacerUltimoEscaneo,
@@ -75,6 +81,11 @@ type Feedback =
   | { tipo: "encontrado"; linea: LineaLocal; unidadesPorCodigo: number }
   | { tipo: "desconocido_conocido"; linea: LineaDesconocidoLocal; foto: Blob | null }
   | { tipo: "no_encontrado"; codigoRaw: string; codigoNorm: string; origenInterno?: boolean }
+  /** El producto existe pero le faltan datos obligatorios y NO se pudo
+   * abrir el popup para completarlos (sin conexión, o el servidor falló).
+   * El escaneo queda sin contar a propósito: dejarlo pasar sería
+   * saltearse el control justo cuando no hay forma de verificarlo. */
+  | { tipo: "datos_bloqueado"; nombre: string; codigoRaw: string; mensaje: string }
   | { tipo: "duplicado"; codigoRaw: string }
   | { tipo: "codigo_invalido"; codigoRaw: string }
   | null;
@@ -163,6 +174,24 @@ export function PantallaConteo({
   const [guardandoProducto, setGuardandoProducto] = useState(false);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
+  // Popup de "completar datos obligatorios": se abre cuando se escanea un
+  // producto que YA está en el catálogo pero al que le falta algo que esta
+  // empresa marcó como obligatorio (Configuración → "Campos obligatorios
+  // al importar"). Frena el escaneo: el conteo se aplica recién cuando se
+  // guardan los datos, y una sola vez por producto en todo el sistema (se
+  // escriben en el catálogo global/por empresa, así que ningún otro
+  // dispositivo lo vuelve a preguntar).
+  const [completando, setCompletando] = useState<{
+    producto: ProductoLocal;
+    codigoRaw: string;
+    delta: number;
+    faltantes: CampoCompletable[];
+  } | null>(null);
+  const [valoresCompletar, setValoresCompletar] = useState<Record<string, string>>({});
+  const [verificandoDatos, setVerificandoDatos] = useState(false);
+  const [guardandoCompletar, setGuardandoCompletar] = useState(false);
+  const [errorCompletar, setErrorCompletar] = useState<string | null>(null);
+
   const [fallados, setFallados] = useState<ItemFallado[]>([]);
   const [reintentando, setReintentando] = useState(false);
 
@@ -222,13 +251,103 @@ export function PantallaConteo({
   // PICADO, hay que dejarlo ahí: si reenfocamos igual, ningún otro input
   // de la pantalla deja escribir un solo carácter.
   function onBlurPrincipal() {
-    if (cargandoProducto || editando !== null || picadoAbierto) return;
+    if (cargandoProducto || editando !== null || picadoAbierto || completando !== null) return;
     reenfocar();
   }
 
   useEffect(() => {
     reenfocar();
   }, []);
+
+  /** El producto está en el catálogo pero le faltan datos obligatorios.
+   *
+   * Antes de molestar al operario se le pregunta al servidor cómo está el
+   * producto AHORA (una lectura, no escribe nada): el snapshot local puede
+   * tener horas y los campos de productos_empresa no llegan por realtime,
+   * así que es muy posible que alguien ya los haya cargado desde el panel.
+   * Si efectivamente ya está completo, el escaneo sigue derecho y el
+   * operario ni se entera.
+   *
+   * Sin conexión no hay forma de verificar ni de guardar, así que el
+   * escaneo se frena con un mensaje — mismo criterio que
+   * crear_producto_y_contar / guardarProductoCargado, que también exigen
+   * estar online y lo dicen. */
+  async function manejarDatosIncompletos(producto: ProductoLocal, codigoRaw: string, delta: number): Promise<void> {
+    if (sinConexion()) {
+      feedbackNoEncontrado();
+      setFeedback({
+        tipo: "datos_bloqueado",
+        nombre: producto.nombre,
+        codigoRaw,
+        mensaje:
+          "Le faltan datos obligatorios y necesitás conexión para completarlos. No se contó: volvé a escanearlo cuando tengas señal.",
+      });
+      return;
+    }
+
+    setVerificandoDatos(true);
+    try {
+      const faltantes = await verificarDatosEnServidor(producto.productoId);
+      if (faltantes.length === 0) {
+        // El catálogo local estaba viejo: ya lo completó alguien más.
+        // verificarDatosEnServidor dejó la fila local al día, así que este
+        // reintento pasa el gate. saltarDebounce porque es el MISMO código
+        // que se acaba de leer, no una lectura nueva del lector.
+        await ejecutarEscaneo(codigoRaw, delta, true);
+        return;
+      }
+      setValoresCompletar({});
+      setErrorCompletar(null);
+      setCompletando({ producto, codigoRaw, delta, faltantes });
+    } catch (e) {
+      feedbackNoEncontrado();
+      setFeedback({
+        tipo: "datos_bloqueado",
+        nombre: producto.nombre,
+        codigoRaw,
+        mensaje: e instanceof Error ? e.message : "No se pudieron consultar los datos del producto.",
+      });
+    } finally {
+      setVerificandoDatos(false);
+    }
+  }
+
+  /** Guarda lo que se tipeó en el popup y recién ahí aplica el escaneo que
+   * había quedado frenado — el operario no tiene que volver a pasar el
+   * lector por el código. */
+  async function guardarDatosCompletar(): Promise<void> {
+    if (!completando) return;
+
+    const enBlanco = completando.faltantes.filter((c) => !(valoresCompletar[c] ?? "").trim());
+    if (enBlanco.length > 0) {
+      setErrorCompletar("Completá todos los campos para poder contar este producto.");
+      return;
+    }
+
+    setGuardandoCompletar(true);
+    setErrorCompletar(null);
+    try {
+      const restantes = await guardarDatosFaltantes(completando.producto.productoId, valoresCompletar);
+
+      // El servidor re-valida todo y solo llena huecos, así que lo que
+      // manda es lo que ÉL dice que quedó, no lo que se tipeó acá.
+      if (restantes.length > 0) {
+        setCompletando({ ...completando, faltantes: restantes });
+        setErrorCompletar("Todavía faltan datos — revisá los campos marcados.");
+        return;
+      }
+
+      const { codigoRaw, delta } = completando;
+      setCompletando(null);
+      setValoresCompletar({});
+      await ejecutarEscaneo(codigoRaw, delta, true);
+      reenfocar();
+    } catch (e) {
+      setErrorCompletar(e instanceof Error ? e.message : "No se pudieron guardar los datos.");
+    } finally {
+      setGuardandoCompletar(false);
+    }
+  }
 
   async function ejecutarEscaneo(codigoRaw: string, delta = 1, saltarDebounce = false): Promise<ResultadoEscaneo> {
     // La tarjeta pasa a ser otro producto: el picado a medio tipear era
@@ -272,6 +391,12 @@ export function PantallaConteo({
         }
         break;
       }
+
+      case "datos_incompletos":
+        // Gate nuevo, INSERTADO antes del "encontrado" de siempre: no se
+        // aplica ninguna cantidad hasta que los datos estén completos.
+        await manejarDatosIncompletos(resultado.producto, resultado.codigoRaw, delta);
+        break;
 
       case "duplicado":
         feedbackDuplicado();
@@ -924,6 +1049,13 @@ export function PantallaConteo({
               </div>
             </div>
           )}
+          {feedback.tipo === "datos_bloqueado" && (
+            <div>
+              <p className="text-sm font-semibold text-danger">Sin contar — {feedback.nombre}</p>
+              <p className="mt-1 font-mono text-[0.6875rem] text-danger/80">{feedback.codigoRaw}</p>
+              <p className="mt-1.5 text-xs text-danger/90">{feedback.mensaje}</p>
+            </div>
+          )}
           {feedback.tipo === "codigo_invalido" && (
             <p className="text-sm font-semibold text-danger">Código inválido — {feedback.codigoRaw}</p>
           )}
@@ -1097,6 +1229,85 @@ export function PantallaConteo({
           ))}
         </ul>
       </div>
+
+      {verificandoDatos && !completando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-strong/50 p-6">
+          <div className="rounded-2xl bg-surface px-6 py-5 text-sm text-strong shadow-xl">
+            Revisando los datos del producto…
+          </div>
+        </div>
+      )}
+
+      {/* Completar datos obligatorios. Es un bloqueo: mientras esto está
+          abierto no se contó nada, y el escaneo se aplica recién al
+          guardar. Solo se piden los campos que REALMENTE faltan (contra el
+          dato fresco del servidor, no contra el snapshot local) y que esta
+          empresa marcó como obligatorios — nunca costo ni precio, que no
+          entran en apps/conteo por ninguna vía. */}
+      {completando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-strong/50 p-4">
+          <div className="max-h-full w-full max-w-sm overflow-auto rounded-2xl bg-surface p-5 shadow-xl">
+            <h2 className="text-base font-bold text-strong">Completar datos del producto</h2>
+            <p className="mt-1 text-sm font-semibold text-strong">{completando.producto.nombre}</p>
+            <p className="mt-0.5 font-mono text-[0.6875rem] text-soft">{completando.producto.codigoNorm}</p>
+            <p className="mt-2 text-xs text-soft">
+              Tu farmacia pide estos datos y a este producto le faltan. Se cargan una sola vez: cuando los
+              guardes, no se vuelven a pedir en ningún dispositivo.
+            </p>
+
+            <div className="mt-4 space-y-2.5">
+              {completando.faltantes.map((campo) => (
+                <label key={campo} className="block">
+                  <span className="mb-1 block text-xs font-semibold text-soft">{LABEL_CAMPO[campo]}</span>
+                  <input
+                    className={CAMPO}
+                    value={valoresCompletar[campo] ?? ""}
+                    inputMode={CAMPOS_NUMERICOS.includes(campo) ? "decimal" : "text"}
+                    onChange={(e) =>
+                      setValoresCompletar((prev) => ({
+                        ...prev,
+                        [campo]: CAMPOS_NUMERICOS.includes(campo)
+                          ? limpiarNumeroDecimal(e.target.value)
+                          : e.target.value,
+                      }))
+                    }
+                    placeholder={LABEL_CAMPO[campo]}
+                  />
+                </label>
+              ))}
+            </div>
+
+            {errorCompletar && <p className="mt-3 text-sm text-danger">{errorCompletar}</p>}
+
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                onClick={guardarDatosCompletar}
+                disabled={guardandoCompletar}
+                className="flex-1 rounded-full bg-brand px-4 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {guardandoCompletar ? "Guardando…" : "Guardar y contar"}
+              </button>
+              {/* Salida de emergencia. NO cuenta el escaneo (que es lo que
+                  el bloqueo protege): simplemente lo abandona, para que
+                  alguien que no tiene el dato a mano no quede con la
+                  pantalla trabada. El producto sigue incompleto y vuelve a
+                  pedirlo el próximo escaneo. */}
+              <button
+                onClick={() => {
+                  setCompletando(null);
+                  setValoresCompletar({});
+                  setErrorCompletar(null);
+                  reenfocar();
+                }}
+                disabled={guardandoCompletar}
+                className="shrink-0 px-1 text-sm text-soft disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmandoCierre && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-strong/50 p-6">

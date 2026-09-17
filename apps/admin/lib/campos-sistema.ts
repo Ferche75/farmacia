@@ -13,6 +13,23 @@
 // buscándolo por nombre exacto (nunca crea uno nuevo por ese camino) —
 // para listas de precio que no traen código. "nombre" sigue requerido
 // porque ese camino lo necesita siempre.
+//
+// SINCRONIZACIÓN MANUAL (no hay generación de código compartida entre SQL
+// y TS en este proyecto). Agregar o sacar una entrada acá obliga a tocar
+// a mano, en el mismo cambio:
+//   1. MAPEO_VACIO, más abajo en este archivo.
+//   2. FilaImportacion + filaImportacionAPayload (packages/db/src/rpc.ts)
+//      y aplicarMapeo (apps/admin/lib/importacion.ts), si el campo se
+//      tiene que poder importar de verdad y no solo mapear en pantalla.
+//   3. El whitelist hardcodeado de `actualizar_config_operativa_empresa`
+//      (supabase/migrations/20260922000000_...), que rechaza cualquier
+//      campo desconocido en la lista de obligatorios.
+//   4. `confirmar_importacion_lote` (misma migración), en sus 3 caminos.
+//   5. Si además el campo tiene que poder completarse desde apps/conteo:
+//      CAMPOS_COMPLETABLES_CONTEO (apps/conteo/lib/campos-obligatorios.ts)
+//      y su gemelo `v_campos_completables` en `completar_datos_producto` /
+//      `datos_completitud_catalogo_conteo`. Ese subconjunto NUNCA puede
+//      incluir costo ni precio (CONTEXTO.md regla 1/3).
 export const CAMPOS_SISTEMA = [
   { campo: "codigoBarra", label: "Código de barras", requerido: false },
   { campo: "unidadesPorCodigo", label: "Unidades por código (caja/blíster)", requerido: false },
@@ -21,6 +38,16 @@ export const CAMPOS_SISTEMA = [
   { campo: "contenido", label: "Contenido (número)", requerido: false },
   { campo: "unidad", label: "Unidad", requerido: false },
   { campo: "principioActivo", label: "Principio activo", requerido: false },
+  // marca / accionTerapeutica / especialidad son columnas de `productos`
+  // desde 20260918000001_fraccionamiento_marca_y_lotes_manuales.sql, que
+  // dejó el cableado al importador y a este archivo explícitamente para
+  // una tarea posterior. Esta es esa tarea: al entrar acá pasan a ser
+  // (a) columnas mapeables en el wizard de importación y (b) checkboxes
+  // de "Campos obligatorios al importar" (config-operativa.tsx itera este
+  // array, no hay UI que tocar).
+  { campo: "marca", label: "Marca", requerido: false },
+  { campo: "accionTerapeutica", label: "Acción terapéutica", requerido: false },
+  { campo: "especialidad", label: "Especialidad", requerido: false },
   { campo: "categoria", label: "Categoría / línea", requerido: false },
   { campo: "codigoProveedor", label: "Código de proveedor", requerido: false },
   { campo: "laboratorio", label: "Laboratorio (si el archivo mezcla varios)", requerido: false },
@@ -45,6 +72,9 @@ export const MAPEO_VACIO: MapeoColumnas = {
   contenido: "",
   unidad: "",
   principioActivo: "",
+  marca: "",
+  accionTerapeutica: "",
+  especialidad: "",
   categoria: "",
   codigoProveedor: "",
   laboratorio: "",
@@ -78,6 +108,9 @@ const SINONIMOS: Partial<Record<CampoSistema, string[]>> = {
   loteCatalogo2: ["lote2", "lotedos", "loteb"],
   nombre: ["itemname", "nombre", "producto", "nombreproducto", "articulo", "item"],
   principioActivo: ["principioactivo", "principio", "pa", "dci"],
+  marca: ["marca", "brand", "marcacomercial"],
+  accionTerapeutica: ["accionterapeutica", "accion", "acciones", "terapeutica"],
+  especialidad: ["especialidad", "especialidadmedica"],
   concentracion: ["concentracion", "concentration", "dosis"],
   contenido: ["contenido"],
   unidad: ["unidad"],
@@ -88,7 +121,8 @@ const SINONIMOS: Partial<Record<CampoSistema, string[]>> = {
 
 const ORDEN_AUTOMAPEO: CampoSistema[] = [
   "codigoProveedor", "codigoBarra", "laboratorio", "fabricante", "distribuidor", "nombre",
-  "principioActivo", "concentracion", "contenido", "unidad", "categoria",
+  "principioActivo", "accionTerapeutica", "especialidad", "marca",
+  "concentracion", "contenido", "unidad", "categoria",
   "loteCatalogo2", "loteCatalogo", "costo", "precio",
 ];
 

@@ -944,6 +944,26 @@ export interface Database {
         };
         Returns: Json;
       };
+      // ── Completar datos obligatorios al escanear (apps/conteo) ──
+      // (supabase/migrations/20260922000000_completar_datos_obligatorios_al_escanear.sql)
+      /** Lo que apps/conteo baja al empezar un conteo para poder decidir
+       * OFFLINE si a un producto le faltan datos obligatorios: la lista
+       * de campos obligatorios de la empresa y los 4 campos NO-PRECIO de
+       * productos_empresa, paginados. SECURITY DEFINER porque
+       * productos_empresa es invisible para un operario a propósito.
+       * Nunca devuelve costo ni precio. */
+      datos_completitud_catalogo_conteo: {
+        Args: { p_offset?: number; p_limit?: number };
+        Returns: Json;
+      };
+      /** Llena los huecos de datos obligatorios de un producto (nunca
+       * pisa un dato que ya estaba) desde el popup de conteo. Con
+       * p_campos = {} es una lectura pura de los valores actuales.
+       * Cualquier perfil con rol, operarios incluidos. */
+      completar_datos_producto: {
+        Args: { p_producto_id: string; p_campos?: Json };
+        Returns: Json;
+      };
       // ── Integración con el POS externo pdvlat ──────────────────
       // (supabase/migrations/20260901000000_integracion_pdvlat_stock.sql)
       /** SECURITY INVOKER: filtra por la RLS de quien llama.
