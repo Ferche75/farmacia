@@ -16,7 +16,13 @@ import type { createBrowserClient } from "@farmacia/db";
 // n8n/flujo-desconocidos-ia.json— siguen estando, con la misma escritura:
 // lo que sugiere la IA sigue cayendo siempre en una opción real del
 // selector. La lista compartida es un superconjunto de ese prompt.
-export { UNIDADES_PRESENTACION, UNIDADES_CONCENTRACION } from "@farmacia/db";
+//
+// `camposDePresentacion` viaja por la misma puerta desde que el alta manual
+// del conteo es un wizard: el paso 2 decide qué campos mostrar según la
+// presentación elegida, exactamente con el mismo criterio que el ABM de
+// apps/admin. Tiene que salir de la misma fuente que las listas, si no
+// vuelve a pasar lo de arriba (dos criterios que se desincronizan).
+export { UNIDADES_PRESENTACION, UNIDADES_CONCENTRACION, camposDePresentacion } from "@farmacia/db";
 
 // Parseo best-effort de lo que devuelve la IA (ej. "400 mg") a
 // valor+unidad separados para los 2 inputs. Notaciones compuestas tipo

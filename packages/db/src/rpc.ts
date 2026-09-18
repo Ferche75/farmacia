@@ -583,6 +583,41 @@ export interface NuevoProductoManual {
    * — no confundir con el código de barras (codigos_barra), que es otra
    * cosa. Opcional. */
   codigo_proveedor?: string | null;
+
+  // ── Venta fraccionada (opcional, 20260928000000) ──────────────
+  // Los cinco reflejan columnas de productos_empresa
+  // (fraccionable / unidades_por_blister / blisters_por_caja /
+  // precio_blister / precio_unidad), agregadas por
+  // 20260918000001_fraccionamiento_marca_y_lotes_manuales.sql y hasta
+  // 20260928000000 escribibles sólo desde el ABM de apps/admin.
+  //
+  // Todos son OPCIONALES y los cuatro últimos sólo tienen efecto si
+  // `fraccionable` es true: con false (o ausente) el RPC ignora el resto y
+  // se comporta igual que antes de existir este bloque.
+  //
+  // Siguen siendo precios de VENTA por nivel, como `precio`. Acá tampoco
+  // hay `costo`.
+
+  /** Esta empresa vende el producto también por blíster y/o por unidad
+   * suelta, no sólo la caja cerrada. Es por EMPRESA, no del catálogo
+   * global: el mismo producto puede fraccionarse en una farmacia y no en
+   * otra. */
+  fraccionable?: boolean | null;
+  /** Obligatorio (> 0) si `fraccionable` es true — el RPC rechaza el alta
+   * si no llega. Junto con `blisters_por_caja` DERIVA productos.contenido
+   * (blisters_por_caja × unidades_por_blister), que pisa cualquier
+   * `contenido` que se mande en el mismo payload. */
+  unidades_por_blister?: number | null;
+  /** Obligatorio (> 0) si `fraccionable` es true — ver
+   * `unidades_por_blister`. */
+  blisters_por_caja?: number | null;
+  /** Precio de un blíster suelto. Opcional incluso con `fraccionable`: no
+   * es proporcional a `precio` (llevar suelto sale más caro por unidad),
+   * lo fija el vendedor a mano y se puede cargar después. */
+  precio_blister?: number | null;
+  /** Precio de una unidad suelta. Mismas condiciones que
+   * `precio_blister`. */
+  precio_unidad?: number | null;
 }
 
 /** Camino paralelo a registrar_escaneo_desconocido/resolver_desconocido:
