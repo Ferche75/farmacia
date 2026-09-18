@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  ajustarStock,
   createBrowserClient,
   camposDePresentacion,
   esUnidadPersonalizada,
@@ -195,24 +194,6 @@ interface SucursalOpcion {
   nombre: string;
 }
 
-// Stock de UNA sucursal para el producto que se está editando. Se guarda
-// por sucursal (y no un único "cargando" global) para que una sucursal
-// lenta no tape el número de las demás: el modal abre y cada fila se
-// completa cuando llega su respuesta.
-interface StockSucursal {
-  cargando: boolean;
-  /** Unidades individuales que vienen de envases cerrados (ya convertidos
-   * por contenido, ver 20260910000000) MÁS las ventas y ajustes
-   * posteriores: un movimiento no se puede atribuir al picado, así que
-   * cae de este lado (ver 20260920000000). Puede tener decimales si
-   * productos.contenido los tiene. */
-  caja: number | null;
-  /** El picado del último conteo cerrado: unidades individuales que el
-   * operario contó sueltas de una caja ya abierta. */
-  sueltas: number | null;
-  error: string | null;
-}
-
 // Lo mismo pero para la columna "Stock" de la lista. `total` viene del
 // RPC, no se suma acá: es el mismo número que ya publica pdvlat, y
 // caja + sueltas = total por construcción del lado de la base.
@@ -371,8 +352,8 @@ export function ProductosAbm({
   );
   // Stock de la columna de la lista: una entrada por producto visible, en
   // unidades individuales y sumado sobre TODAS las sucursales/bodegas de
-  // la empresa (ver el fetch). Es un mapa distinto de `stockPorSucursal`
-  // de más abajo, que es el desglose por sucursal del modal de edición.
+  // la empresa (ver el fetch). El desglose por sucursal (antes acá, con su
+  // propio "Corregir") vive ahora en /ajustes-stock.
   const [stockPorProducto, setStockPorProducto] = useState<Map<string, StockDesglose>>(new Map());
   const [sucursales, setSucursales] = useState<SucursalOpcion[]>([]);
   // Catálogo de importadoras de ESTA empresa (20260924000001). Se carga
@@ -381,7 +362,7 @@ export function ProductosAbm({
   const [importadoras, setImportadoras] = useState<ImportadoraOpcion[]>([]);
   // Marcas conocidas por importadora. Caché acumulativo (nunca se limpia)
   // para que el efecto de abajo no tenga que hacer un setState síncrono al
-  // cambiar de importadora — mismo criterio que `stockPorSucursal`.
+  // cambiar de importadora.
   const [marcasPorImportadora, setMarcasPorImportadora] = useState<Map<string, string[]>>(new Map());
   const [buscando, setBuscando] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
@@ -391,18 +372,6 @@ export function ProductosAbm({
   const [prefColumnas, setPrefColumnas] = useState(cargarPreferenciaColumnas);
   const [panelColumnasAbierto, setPanelColumnasAbierto] = useState(false);
   const [camposPersonalizados, setCamposPersonalizados] = useState<CampoPersonalizado[]>([]);
-
-  // ── Stock del producto que se está editando ──────────────────
-  // Vive fuera de `form` a propósito: no es un campo del producto que se
-  // guarde con "Guardar", es un dato calculado (conteo cerrado +
-  // movimientos) que se corrige por su propio RPC.
-  const [stockPorSucursal, setStockPorSucursal] = useState<Map<string, StockSucursal>>(new Map());
-  const [ajusteAbierto, setAjusteAbierto] = useState<string | null>(null); // sucursal_id
-  const [ajusteCantidad, setAjusteCantidad] = useState("");
-  const [ajusteMotivo, setAjusteMotivo] = useState("");
-  const [ajustando, setAjustando] = useState(false);
-  const [ajusteError, setAjusteError] = useState<string | null>(null);
-  const [ajusteOk, setAjusteOk] = useState<string | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(LOCALSTORAGE_KEY_COLUMNAS, JSON.stringify(prefColumnas));
@@ -532,130 +501,6 @@ export function ProductosAbm({
   }, [importadoraSeleccionada, supabase]);
 
   const marcasSugeridas = marcasPorImportadora.get(importadoraSeleccionada) ?? [];
-
-  // Al abrir el modal de un producto QUE YA EXISTE, se pide el stock de
-  // cada sucursal en paralelo (un stock_actual_desglose por sucursal — no
-  // hay wrapper tipado para esta familia de RPC en @farmacia/db porque
-  // nunca se llamó desde el panel; se usa .rpc() directo, igual que
-  // normalizar_codigo más abajo en este mismo archivo, con la firma
-  // declarada en database.types.ts). Un producto nuevo no tiene id ni
-  // stock del cual hablar, así que el efecto no hace nada.
-  const productoEditandoId = form?.id;
-
-  // Reset del formulario de ajuste al cambiar de producto — durante el
-  // render, no en un efecto (react-hooks/set-state-in-effect: el patrón
-  // que React mismo documenta para "resetear estado cuando cambia algo",
-  // comparando contra el último valor visto y actualizando ahí mismo si
-  // difiere). Acá es seguro hacerlo así porque `prevProductoId` es estado
-  // PROPIO que queda congelado hasta que se lo pisa a mano — diverge de
-  // verdad de `productoEditandoId` en cuanto el usuario abre otro
-  // producto, a diferencia de columnasCombinadas de más arriba, donde las
-  // dos puntas se recalculaban juntas y nunca podían diferir solas.
-  // También limpia `stockPorSucursal` (no solo el formulario de ajuste):
-  // sin esto, cambiar de producto de A a B podría mostrar por un instante
-  // el stock viejo de A mientras llegan las respuestas de B. Con el mapa
-  // arrancando vacío, cada fila cae en el `!st` de abajo ("cargando…")
-  // hasta que su propia respuesta llega — no hace falta precargar un
-  // estado "cargando: true" a mano (eso era el otro setState síncrono al
-  // tope del efecto que señalaba el linter).
-  const [prevProductoId, setPrevProductoId] = useState(productoEditandoId);
-  if (productoEditandoId !== prevProductoId) {
-    setPrevProductoId(productoEditandoId);
-    setAjusteAbierto(null);
-    setAjusteCantidad("");
-    setAjusteMotivo("");
-    setAjusteError(null);
-    setAjusteOk(null);
-    setStockPorSucursal(new Map());
-  }
-
-  // El efecto queda con un solo trabajo: pedir el stock real. Ningún
-  // setState síncrono en el cuerpo — solo dentro de los .then() de abajo,
-  // que es justo el caso que react-hooks/set-state-in-effect permite
-  // ("llamar a setState en una función de callback cuando cambia un
-  // estado externo").
-  useEffect(() => {
-    if (!productoEditandoId || sucursales.length === 0) return;
-
-    let cancelado = false;
-
-    for (const s of sucursales) {
-      void supabase
-        .rpc("stock_actual_desglose", {
-          p_empresa_id: empresaId,
-          p_producto_id: productoEditandoId,
-          p_sucursal_id: s.id,
-        })
-        .then(({ data, error: rpcError }) => {
-          if (cancelado) return;
-          // La función devuelve TABLE, así que PostgREST la serializa como
-          // array aunque siempre traiga exactamente una fila.
-          const fila = data?.[0];
-          setStockPorSucursal((prev) =>
-            new Map(prev).set(s.id, {
-              cargando: false,
-              caja: rpcError ? null : Number(fila?.caja ?? 0),
-              sueltas: rpcError ? null : Number(fila?.sueltas ?? 0),
-              error: rpcError ? rpcError.message : null,
-            })
-          );
-        });
-    }
-
-    return () => {
-      cancelado = true;
-    };
-  }, [productoEditandoId, sucursales, supabase, empresaId]);
-
-  async function guardarAjusteStock(sucursalId: string) {
-    if (!productoEditandoId) return;
-    setAjustando(true);
-    setAjusteError(null);
-    setAjusteOk(null);
-    try {
-      const r = await ajustarStock(supabase, {
-        empresaId,
-        sucursalId,
-        productoId: productoEditandoId,
-        cantidadNueva: Number(ajusteCantidad),
-        motivo: ajusteMotivo,
-      });
-      // El RPC ya devolvió el stock resultante: no hace falta volver a
-      // preguntar por stock_actual.
-      //
-      // ajustar_stock no sabe de caja/sueltas — devuelve un TOTAL. El
-      // desglose se reconstruye con la misma regla que usa la base
-      // (20260920000000): un ajuste es un movimiento y los movimientos
-      // caen del lado de "caja", así que las sueltas quedan intactas (la
-      // corrección no dijo nada sobre el picado) y toda la diferencia va
-      // a caja. El updater es funcional a propósito: lee el `sueltas`
-      // vigente del mapa en vez de una copia capturada al abrir el
-      // formulario, que podría ser vieja.
-      setStockPorSucursal((prev) => {
-        // null = el desglose todavía no había llegado cuando se corrigió.
-        // Sin inventar un 0: el total entero se muestra como caja y las
-        // sueltas siguen desconocidas hasta la próxima lectura.
-        const sueltas = prev.get(sucursalId)?.sueltas ?? null;
-        return new Map(prev).set(sucursalId, {
-          cargando: false,
-          caja: r.stock_nuevo - (sueltas ?? 0),
-          sueltas,
-          error: null,
-        });
-      });
-      const signo = r.delta >= 0 ? "+" : "";
-      setAjusteOk(
-        `Stock ajustado: ${formatearStock(r.stock_anterior)} → ${formatearStock(r.stock_nuevo)} (${signo}${r.delta})`
-      );
-      setAjusteAbierto(null);
-      setAjusteCantidad("");
-      setAjusteMotivo("");
-    } catch (e) {
-      setAjusteError(mensajeDeError(e, "No se pudo ajustar el stock."));
-    } finally {
-      setAjustando(false);
-    }
-  }
 
   async function exportarCatalogo() {
     setExportando(true);
@@ -2087,126 +1932,20 @@ export function ProductosAbm({
               </div>
             )}
 
-            {/* Stock: solo al EDITAR. Un producto que todavía no existe no
-                tiene stock del cual hablar, y el RPC necesita su id. */}
-            {form.id && sucursales.length > 0 && (
-              <div className="border-t border-line pt-4">
-                <span className="mb-1.5 block text-xs font-medium text-muted">
-                  Stock actual, en unidades sueltas (último conteo cerrado + ventas y ajustes posteriores)
-                </span>
+            {/* El bloque de "Stock actual / Corregir" que vivía acá se mudó
+                a /ajustes-stock (ver ajustes-stock.tsx) — pedido explícito
+                del usuario: editar nombre/precio/etc. de un producto no
+                debe tener al lado un campo que toque cuánto hay, aunque
+                esté auditado. La única vía para cambiar stock desde acá
+                sigue siendo un conteo físico; /ajustes-stock es la
+                excepción explícita y separada para romper/faltantes sin
+                rehacer el conteo entero. */}
 
-                {ajusteOk && (
-                  <p className="mb-2 rounded-md border border-ok/20 bg-ok-soft px-3 py-2 text-sm text-ok">
-                    {ajusteOk}
-                  </p>
-                )}
-                {ajusteError && (
-                  <p className="mb-2 rounded-md border border-danger/20 bg-danger-soft px-3 py-2 text-sm text-danger">
-                    {ajusteError}
-                  </p>
-                )}
-
-                <ul className="space-y-1.5">
-                  {sucursales.map((s) => {
-                    const st = stockPorSucursal.get(s.id);
-                    const abierto = ajusteAbierto === s.id;
-                    return (
-                      <li key={s.id} className="rounded-md border border-line px-3 py-2">
-                        <div className="flex items-center gap-3 text-sm">
-                          <span className="flex-1 text-ink">{s.nombre}</span>
-                          {!st || st.cargando ? (
-                            <span className="text-muted">cargando…</span>
-                          ) : st.error ? (
-                            <span className="text-danger">no se pudo leer</span>
-                          ) : (
-                            // "140 + 10 sueltas": el picado se muestra
-                            // aparte porque son unidades que el operario
-                            // contó flojas, no una caja cerrada. El
-                            // sufijo solo aparece si hay algo que decir —
-                            // con sueltas en 0 (o todavía desconocidas
-                            // tras un ajuste) queda el número de siempre.
-                            <span className="font-medium text-ink">
-                              {formatearStock(st.caja ?? 0)}
-                              {(st.sueltas ?? 0) > 0 && (
-                                <span className="ml-1 font-normal text-brand">
-                                  + {formatearStock(st.sueltas ?? 0)} sueltas
-                                </span>
-                              )}
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAjusteError(null);
-                              setAjusteOk(null);
-                              if (abierto) {
-                                setAjusteAbierto(null);
-                                return;
-                              }
-                              setAjusteAbierto(s.id);
-                              // Se precarga el TOTAL, no la caja: quien
-                              // corrige está mirando el pilón físico
-                              // entero en el estante, no pensando en la
-                              // división caja/picado. ajustar_stock
-                              // también recibe un total.
-                              setAjusteCantidad(
-                                st?.caja != null ? String(Math.round(st.caja + (st.sueltas ?? 0))) : ""
-                              );
-                              setAjusteMotivo("");
-                            }}
-                            className="font-medium text-brand hover:underline"
-                          >
-                            {abierto ? "Cancelar" : "Corregir"}
-                          </button>
-                        </div>
-
-                        {abierto && (
-                          <div className="mt-2 flex flex-wrap items-end gap-2">
-                            <label className="block">
-                              <span className="mb-1 block text-xs font-medium text-muted">Cantidad real</span>
-                              <input
-                                type="number"
-                                min={0}
-                                className="input w-28"
-                                value={ajusteCantidad}
-                                onChange={(e) => setAjusteCantidad(e.target.value)}
-                              />
-                            </label>
-                            <label className="block min-w-48 flex-1">
-                              <span className="mb-1 block text-xs font-medium text-muted">Motivo *</span>
-                              <input
-                                className="input"
-                                value={ajusteMotivo}
-                                onChange={(e) => setAjusteMotivo(e.target.value)}
-                                placeholder="Ej: se rompió una caja"
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              onClick={() => guardarAjusteStock(s.id)}
-                              disabled={ajustando || !ajusteMotivo.trim() || ajusteCantidad.trim() === ""}
-                              className="rounded-md bg-brand px-3.5 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                            >
-                              {ajustando ? "Guardando…" : "Guardar"}
-                            </button>
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-
-                <p className="mt-1.5 text-xs text-muted">
-                  Para corregir una rotura, un faltante o un conteo mal cargado sin rehacer el conteo entero. Queda
-                  registrado quién, cuándo y por qué — el motivo es obligatorio.
-                </p>
-              </div>
-            )}
-
-            {/* Lotes y vencimientos: igual que el stock de arriba, solo al
-                EDITAR — un producto que todavía no existe no tiene a qué
-                colgarle un lote. Escribe la tabla `lotes` REAL, la misma
-                que alimenta el semáforo de vencimientos y el desglose que
+            {/* Lotes y vencimientos: solo al EDITAR, mismo criterio que
+                tenía el stock que se mudó a /ajustes-stock — un producto
+                que todavía no existe no tiene a qué colgarle un lote.
+                Escribe la tabla `lotes` REAL, la misma que alimenta el
+                semáforo de vencimientos y el desglose que
                 ve pdvlat, no una copia de catálogo. */}
             {form.id && sucursales.length > 0 && (
               <div className="border-t border-line pt-4">
