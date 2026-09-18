@@ -49,7 +49,17 @@ export const CAMPOS_SISTEMA = [
   { campo: "nombre", label: "Nombre", requerido: true },
   { campo: "concentracion", label: "Concentración", requerido: false },
   { campo: "contenido", label: "Contenido (número)", requerido: false },
-  { campo: "unidad", label: "Unidad", requerido: false },
+  // Label "Presentación" (2026-09-30, pedido del usuario) — el `campo`
+  // interno sigue siendo "unidad" (no se toca: es productos.unidad, y
+  // renombrar la key obligaría a la sincronización manual de arriba en
+  // TODOS los puntos). Es la MISMA columna que apps/conteo llama
+  // "Presentación" en su wizard (UNIDADES_PRESENTACION,
+  // packages/db/src/campos-producto.ts): comprimidos, jarabe, ampolla,
+  // etc. — "unidades" es uno de los VALORES posibles de esta lista (junto
+  // con "ml"/"g", el genérico de último recurso), no un campo aparte. Con
+  // la etiqueta "Unidad" acá el usuario no la reconocía como el mismo
+  // campo que ya usa apps/conteo.
+  { campo: "unidad", label: "Presentación", requerido: false },
   { campo: "principioActivo", label: "Principio activo", requerido: false },
   // marca / accionTerapeutica / especialidad son columnas de `productos`
   // desde 20260918000001_fraccionamiento_marca_y_lotes_manuales.sql, que
@@ -138,7 +148,9 @@ const SINONIMOS: Partial<Record<CampoSistema, string[]>> = {
   especialidad: ["especialidad", "especialidadmedica"],
   concentracion: ["concentracion", "concentration", "dosis"],
   contenido: ["contenido"],
-  unidad: ["unidad"],
+  // "presentacion" sumado junto al "unidad" que ya estaba: un archivo de
+  // proveedor puede traer cualquiera de los dos headers para lo mismo.
+  unidad: ["unidad", "presentacion"],
   categoria: ["categoria", "linea", "grupo", "rubro"],
   costo: ["costo", "cost", "preciocosto", "precioproveedor"],
   precio: ["precio", "price", "precioventa", "pvp"],
