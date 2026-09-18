@@ -518,17 +518,31 @@ export function ProductosAbm({
       setBuscando(true);
       const termino = term.trim();
 
-      // El buscador cubre 3 campos que viven en 3 tablas distintas:
-      // nombre (productos), código de barras (codigos_barra) y SKU propio
-      // de la empresa (productos_empresa.codigo_proveedor). PostgREST
+      // El buscador cubre TODAS las columnas de texto buscables del
+      // catálogo, que viven repartidas en 4 tablas (pedido explícito del
+      // usuario: "que se pueda buscar por todo lo disponible"). PostgREST
       // puede filtrar por columnas de recursos embebidos dentro de un
-      // .or(), pero combinar 2 relaciones embebidas distintas en un solo
-      // filtro es frágil — más simple y confiable resolver los ids que
-      // matchean por código en 2 consultas chicas aparte, y filtrar la
-      // consulta principal por nombre O esos ids.
+      // .or(), pero combinar varias relaciones embebidas distintas en un
+      // solo filtro es frágil — más simple y confiable resolver los ids
+      // que matchean en cada tabla aparte, y filtrar la consulta principal
+      // por sus propias columnas O esos ids.
+      //
+      // En `productos` (una sola tabla, van directo en el .or() de abajo):
+      // nombre, marca, principio_activo, concentracion, accion_terapeutica,
+      // especialidad, categoria, fabricante, unidad.
+      //
+      // En OTRAS tablas (necesitan su propio ids.in(...)):
+      // laboratorios.nombre (vía laboratorio_id), codigos_barra.codigo_raw,
+      // y de productos_empresa: codigo_proveedor, distribuidor,
+      // lote_catalogo, lote_catalogo_2.
+      //
+      // Deliberadamente AFUERA: contenido (numérico, "buscar por texto" no
+      // aplica) y los booleanos requiere_receta/controlado/activo (se
+      // filtran con checkboxes si hiciera falta, no con texto libre).
       let idsPorCodigo: string[] = [];
+      let idsPorLaboratorio: string[] = [];
       if (termino) {
-        const [porBarra, porSku] = await Promise.all([
+        const [porBarra, porSku, porDistribuidor, porLote, porLote2, porLaboratorio] = await Promise.all([
           supabase.from("codigos_barra").select("producto_id").ilike("codigo_raw", `%${termino}%`).limit(50),
           supabase
             .from("productos_empresa")
@@ -536,13 +550,40 @@ export function ProductosAbm({
             .eq("empresa_id", empresaId)
             .ilike("codigo_proveedor", `%${termino}%`)
             .limit(50),
+          supabase
+            .from("productos_empresa")
+            .select("producto_id")
+            .eq("empresa_id", empresaId)
+            .ilike("distribuidor", `%${termino}%`)
+            .limit(50),
+          supabase
+            .from("productos_empresa")
+            .select("producto_id")
+            .eq("empresa_id", empresaId)
+            .ilike("lote_catalogo", `%${termino}%`)
+            .limit(50),
+          supabase
+            .from("productos_empresa")
+            .select("producto_id")
+            .eq("empresa_id", empresaId)
+            .ilike("lote_catalogo_2", `%${termino}%`)
+            .limit(50),
+          supabase.from("laboratorios").select("id").ilike("nombre", `%${termino}%`).limit(50),
         ]);
+        // laboratorios.id no es producto_id: se resuelve una vuelta más,
+        // filtrando productos por laboratorio_id in (...) en el .or() de
+        // abajo en vez de sumarlo acá (mismo array que los demás, pero es
+        // otra columna — laboratorio_id.in en vez de id.in).
         idsPorCodigo = [
           ...new Set([
             ...(porBarra.data ?? []).map((r) => r.producto_id),
             ...(porSku.data ?? []).map((r) => r.producto_id),
+            ...(porDistribuidor.data ?? []).map((r) => r.producto_id),
+            ...(porLote.data ?? []).map((r) => r.producto_id),
+            ...(porLote2.data ?? []).map((r) => r.producto_id),
           ]),
         ];
+        idsPorLaboratorio = [...new Set((porLaboratorio.data ?? []).map((r) => r.id))];
       }
 
       let query = supabase
@@ -554,10 +595,21 @@ export function ProductosAbm({
         .order("nombre")
         .range(pagina * TAMANO_PAGINA, pagina * TAMANO_PAGINA + TAMANO_PAGINA - 1);
       if (termino) {
-        const filtro = idsPorCodigo.length
-          ? `nombre.ilike.%${termino}%,id.in.(${idsPorCodigo.join(",")})`
-          : `nombre.ilike.%${termino}%`;
-        query = query.or(filtro);
+        const columnasDeTexto = [
+          "nombre",
+          "marca",
+          "principio_activo",
+          "concentracion",
+          "accion_terapeutica",
+          "especialidad",
+          "categoria",
+          "fabricante",
+          "unidad",
+        ];
+        const partesFiltro = columnasDeTexto.map((c) => `${c}.ilike.%${termino}%`);
+        if (idsPorCodigo.length) partesFiltro.push(`id.in.(${idsPorCodigo.join(",")})`);
+        if (idsPorLaboratorio.length) partesFiltro.push(`laboratorio_id.in.(${idsPorLaboratorio.join(",")})`);
+        query = query.or(partesFiltro.join(","));
       }
       const { data, count } = await query;
       const productos = (data ?? []) as unknown as ProductoFila[];
@@ -1221,8 +1273,10 @@ export function ProductosAbm({
       <div className="rounded-lg border border-line bg-surface p-8">
         <h1 className="text-2xl font-semibold tracking-tight text-ink">Catálogo de productos</h1>
         <p className="mt-1.5 text-sm text-muted">
-          Buscador por nombre, código de barras o SKU, y alta/edición manual. El catálogo es global — lo que
-          edités acá lo ven todas las empresas.
+          Buscador por cualquier campo de texto del catálogo (nombre, marca, laboratorio, principio activo,
+          concentración, acción terapéutica, especialidad, categoría, fabricante, unidad, código de barras, SKU,
+          distribuidor, lote), y alta/edición manual. El catálogo es global — lo que edités acá lo ven todas las
+          empresas.
         </p>
 
         <div className="mt-6 flex items-center gap-3">
@@ -1235,7 +1289,7 @@ export function ProductosAbm({
                 setTerm(e.target.value);
                 setPagina(0);
               }}
-              placeholder="Buscar por nombre, código de barras o SKU…"
+              placeholder="Buscar por nombre, marca, laboratorio, principio activo, código, SKU, lote…"
               className="input pl-9"
             />
           </div>
