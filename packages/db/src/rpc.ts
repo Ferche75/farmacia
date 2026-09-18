@@ -358,6 +358,37 @@ export async function actualizarCamposPersonalizadosEmpresa(
   return data as unknown as { empresa_id: string };
 }
 
+export type OperacionCalculadora = "suma" | "multiplicador" | "porcentaje";
+
+export interface ReglaCalculadoraPrecios {
+  operacion: OperacionCalculadora;
+  valor: number;
+}
+
+/** Reglas de la calculadora de precios por presentación (ver
+ * apps/admin/lib/calculadora-precios.ts): una por nivel, `null` cuando la
+ * empresa todavía no la configuró — en ese caso el formulario de
+ * productos simplemente no ofrece ninguna sugerencia para ese nivel. */
+export interface CalculadoraPreciosEmpresa {
+  blister: ReglaCalculadoraPrecios | null;
+  unidad: ReglaCalculadoraPrecios | null;
+}
+
+export async function actualizarCalculadoraPreciosEmpresa(
+  supabase: SupabaseClient<Database>,
+  config: CalculadoraPreciosEmpresa
+): Promise<{ empresa_id: string }> {
+  const { data, error } = await supabase.rpc("actualizar_calculadora_precios_empresa", {
+    p_blister_operacion: config.blister?.operacion ?? null,
+    p_blister_valor: config.blister?.valor ?? null,
+    p_unidad_operacion: config.unidad?.operacion ?? null,
+    p_unidad_valor: config.unidad?.valor ?? null,
+  });
+
+  if (error) throw error;
+  return data as unknown as { empresa_id: string };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Importación de catálogo (Fase 2)
 // ═══════════════════════════════════════════════════════════════

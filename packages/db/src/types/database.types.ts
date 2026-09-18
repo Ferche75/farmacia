@@ -1033,6 +1033,15 @@ export interface Database {
         Args: { p_campos: Json };
         Returns: Json;
       };
+      actualizar_calculadora_precios_empresa: {
+        Args: {
+          p_blister_operacion: string | null;
+          p_blister_valor: number | null;
+          p_unidad_operacion: string | null;
+          p_unidad_valor: number | null;
+        };
+        Returns: Json;
+      };
       iniciar_importacion: {
         Args: { p_archivo: string; p_mapeo: Json; p_sucursal_ids?: string[] };
         Returns: string;

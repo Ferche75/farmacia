@@ -7,8 +7,10 @@ import {
   esUnidadPersonalizada,
   UNIDADES_PRESENTACION,
   type CampoPersonalizado,
+  type CalculadoraPreciosEmpresa,
 } from "@farmacia/db";
 import { exportarCatalogoCompleto } from "@/lib/exportar-catalogo";
+import { sugerirPrecioBlister, sugerirPrecioUnidad } from "@/lib/calculadora-precios";
 
 interface ProductoFila {
   id: string;
@@ -336,9 +338,11 @@ function cargarPreferenciaColumnas(): { visibles: string[]; orden: string[] } {
 export function ProductosAbm({
   empresaId,
   umbralVencimiento,
+  calculadoraPrecios,
 }: {
   empresaId: string;
   umbralVencimiento: UmbralSemaforo;
+  calculadoraPrecios: CalculadoraPreciosEmpresa;
 }) {
   const supabase = useMemo(() => createBrowserClient(), []);
   const [term, setTerm] = useState("");
@@ -863,6 +867,24 @@ export function ProductosAbm({
   const contenidoDerivado =
     form && fraccionaAhora ? String(Number(form.blistersPorCaja) * Number(form.unidadesPorBlister) || "") : "";
   const contenidoEfectivo = fraccionaAhora ? contenidoDerivado : (form?.contenido ?? "");
+
+  // ── Calculadora de precios: solo SUGIERE, nunca pisa lo que ya hay ──
+  // Misma lógica en apps/admin/lib/calculadora-precios.ts, reusada acá
+  // contra los datos concretos de ESTE producto (y en /configuracion
+  // contra un precio de muestra, para explicar la regla en abstracto).
+  // null en cualquiera de los tres significa "falta un dato" (precio de
+  // caja, blísteres por caja o unidades por blíster) o "esta empresa no
+  // configuró regla para ese nivel" — en ambos casos no hay nada para
+  // sugerir y el botón correspondiente no aparece.
+  const precioCajaNum = form?.precio ? Number(form.precio) : null;
+  const blistersPorCajaNum = form?.blistersPorCaja ? Number(form.blistersPorCaja) : null;
+  const unidadesPorBlisterNum = form?.unidadesPorBlister ? Number(form.unidadesPorBlister) : null;
+  const sugeridoBlister = fraccionaAhora
+    ? sugerirPrecioBlister(precioCajaNum, blistersPorCajaNum, calculadoraPrecios.blister)
+    : null;
+  const sugeridoUnidad = fraccionaAhora
+    ? sugerirPrecioUnidad(precioCajaNum, blistersPorCajaNum, unidadesPorBlisterNum, calculadoraPrecios.unidad)
+    : null;
 
   // ── Marca: catálogo de sugerencias, no una FK ────────────────
   // `productos.marca` sigue siendo TEXTO LIBRE GLOBAL y se guarda igual
@@ -1832,26 +1854,52 @@ export function ProductosAbm({
                         />
                       </Campo>
                       <Campo label="Precio por blíster">
-                        <input
-                          type="number"
-                          className="input"
-                          value={form.precioBlister}
-                          onChange={(e) => setForm({ ...form, precioBlister: e.target.value })}
-                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            className="input"
+                            value={form.precioBlister}
+                            onChange={(e) => setForm({ ...form, precioBlister: e.target.value })}
+                          />
+                          {sugeridoBlister !== null && (
+                            <button
+                              type="button"
+                              title="Precarga con la regla de /configuración — lo podés corregir antes de guardar."
+                              onClick={() => setForm({ ...form, precioBlister: String(sugeridoBlister) })}
+                              className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 text-xs font-medium text-ink transition-colors hover:bg-paper"
+                            >
+                              Usar Bs {sugeridoBlister.toFixed(2)}
+                            </button>
+                          )}
+                        </div>
                       </Campo>
                       <Campo label="Precio por unidad">
-                        <input
-                          type="number"
-                          className="input"
-                          value={form.precioUnidad}
-                          onChange={(e) => setForm({ ...form, precioUnidad: e.target.value })}
-                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            className="input"
+                            value={form.precioUnidad}
+                            onChange={(e) => setForm({ ...form, precioUnidad: e.target.value })}
+                          />
+                          {sugeridoUnidad !== null && (
+                            <button
+                              type="button"
+                              title="Precarga con la regla de /configuración — lo podés corregir antes de guardar."
+                              onClick={() => setForm({ ...form, precioUnidad: String(sugeridoUnidad) })}
+                              className="shrink-0 whitespace-nowrap rounded-md border border-line px-2.5 text-xs font-medium text-ink transition-colors hover:bg-paper"
+                            >
+                              Usar Bs {sugeridoUnidad.toFixed(2)}
+                            </button>
+                          )}
+                        </div>
                       </Campo>
                     </div>
 
                     <p className="mt-2 text-xs text-muted">
                       Los tres precios son independientes: llevar un blíster suelto suele salir más caro por unidad
-                      que llevarse la caja entera. No se calculan dividiendo el precio de la caja.
+                      que llevarse la caja entera. No se calculan solos dividiendo el precio de la caja — el botón
+                      &quot;Usar Bs…&quot; solo aparece si configuraste una regla en /configuración, y precarga el
+                      campo sin guardar nada hasta que toques &quot;Guardar&quot;.
                       {contenidoDerivado && ` Esta caja queda en ${contenidoDerivado} unidades.`}
                     </p>
 

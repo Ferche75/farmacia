@@ -1,11 +1,18 @@
 import type { ReactNode } from "react";
 import { requirePerfilAdmin } from "@/lib/dal";
 import { createServerClient } from "@farmacia/db/server";
-import { VENCIMIENTO_SEMAFORO_DEFAULT, type ConfigOperativaEmpresa, type CampoPersonalizado } from "@farmacia/db";
+import {
+  VENCIMIENTO_SEMAFORO_DEFAULT,
+  type ConfigOperativaEmpresa,
+  type CampoPersonalizado,
+  type CalculadoraPreciosEmpresa,
+  type ReglaCalculadoraPrecios,
+} from "@farmacia/db";
 import { ConfiguracionForm } from "./configuracion-form";
 import { SucursalesBodegas } from "./sucursales-bodegas";
 import { ConfigOperativa } from "./config-operativa";
 import { CamposPersonalizados } from "./campos-personalizados";
+import { CalculadoraPrecios } from "./calculadora-precios";
 import { IntegracionPdv, type EstadoIntegracionPdv } from "./integracion-pdv";
 import { Empleados } from "./empleados";
 
@@ -82,6 +89,17 @@ export default async function ConfiguracionPage() {
   const camposPersonalizados: CampoPersonalizado[] = Array.isArray(configRaw.campos_personalizados)
     ? (configRaw.campos_personalizados as CampoPersonalizado[])
     : [];
+
+  // calculadora_precios es opcional y cada nivel es independiente — una
+  // empresa puede tener regla para blíster y ninguna para unidad. Ver
+  // actualizar_calculadora_precios_empresa (RPC) para el shape guardado.
+  const calculadoraRaw = configRaw.calculadora_precios as
+    | { blister?: ReglaCalculadoraPrecios | null; unidad?: ReglaCalculadoraPrecios | null }
+    | undefined;
+  const calculadoraPrecios: CalculadoraPreciosEmpresa = {
+    blister: calculadoraRaw?.blister ?? null,
+    unidad: calculadoraRaw?.unidad ?? null,
+  };
 
   const { data: sucursales, error: errorSucursales } = await supabase
     .from("sucursales")
@@ -203,6 +221,13 @@ export default async function ConfiguracionPage() {
           descripcion="Umbrales y validaciones que solo afectan a tu empresa — no cambian nada para las demás."
         >
           <ConfigOperativa config={configOperativa} />
+        </Seccion>
+
+        <Seccion
+          titulo="Calculadora de precios"
+          descripcion="Reglas para sugerir el precio de blíster y de unidad a partir del precio de caja, al cargar un producto fraccionable. Solo precarga: el vendedor confirma o corrige antes de guardar."
+        >
+          <CalculadoraPrecios config={calculadoraPrecios} />
         </Seccion>
 
         <Seccion
