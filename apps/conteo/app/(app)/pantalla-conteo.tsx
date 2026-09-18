@@ -48,6 +48,7 @@ import {
 import { comprimirImagen } from "@/lib/foto";
 import { UNIDADES_PRESENTACION, UNIDADES_CONCENTRACION, camposDePresentacion } from "@/lib/campos-producto";
 import { obtenerPresentacionesFrecuentes, registrarUsoPresentacion } from "@/lib/uso-presentaciones";
+import { yaVioAvisoPicado, marcarAvisoPicadoVisto } from "@/lib/aviso-picado";
 import { suscribirCambiosCatalogo } from "@/lib/descargar-catalogo";
 import {
   sincronizarPendientes,
@@ -185,6 +186,12 @@ export function PantallaConteo({
   // recién escaneado para sumarle unidades sueltas (caja ya abierta).
   const [picadoAbierto, setPicadoAbierto] = useState(false);
   const [picadoValor, setPicadoValor] = useState("1");
+  // Popup de "qué es Picado", una sola vez por dispositivo (pedido
+  // explícito del dueño: la confusión de tipear el total en vez de solo
+  // lo suelto se repetía). Se decide al tocar el botón, no al montar la
+  // pantalla — no tiene sentido leer localStorage antes de que exista la
+  // posibilidad de necesitarlo.
+  const [avisoPicadoAbierto, setAvisoPicadoAbierto] = useState(false);
   const [subiendoFoto, setSubiendoFoto] = useState(false);
   const [confirmandoCierre, setConfirmandoCierre] = useState(false);
   const [cerrando, setCerrando] = useState(false);
@@ -347,7 +354,7 @@ export function PantallaConteo({
   // PICADO, hay que dejarlo ahí: si reenfocamos igual, ningún otro input
   // de la pantalla deja escribir un solo carácter.
   function onBlurPrincipal() {
-    if (cargandoProducto || editando !== null || picadoAbierto || completando !== null) return;
+    if (cargandoProducto || editando !== null || picadoAbierto || avisoPicadoAbierto || completando !== null) return;
     reenfocar();
   }
 
@@ -1034,7 +1041,11 @@ export function PantallaConteo({
                     <button
                       onClick={() => {
                         setPicadoValor("");
-                        setPicadoAbierto(true);
+                        if (yaVioAvisoPicado()) {
+                          setPicadoAbierto(true);
+                        } else {
+                          setAvisoPicadoAbierto(true);
+                        }
                       }}
                       className="mt-2 rounded-full bg-brand px-3 py-1 text-[0.6875rem] font-bold uppercase tracking-wide text-white transition-opacity hover:opacity-90"
                     >
@@ -1768,6 +1779,36 @@ export function PantallaConteo({
           ))}
         </ul>
       </div>
+
+      {/* Popup de "qué es Picado", solo la primera vez por dispositivo
+          (yaVioAvisoPicado). Explica ANTES de que el operario tipee nada,
+          no después — la aclaración de abajo del input ya existía y no
+          alcanzaba, esto va primero. */}
+      {avisoPicadoAbierto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-strong/50 p-6">
+          <div className="w-full max-w-sm rounded-2xl bg-surface p-5 shadow-xl">
+            <h2 className="text-base font-bold text-strong">¿Qué es Picado?</h2>
+            <p className="mt-2 text-sm leading-relaxed text-strong">
+              En Picado solo sumás la <strong>unidad suelta</strong>. La caja ya se sumó sola al escanearla, no la
+              vuelvas a contar acá.
+            </p>
+            <p className="mt-2 text-sm leading-relaxed text-strong">
+              Si encontrás una caja abierta: separala del resto, contá lo suelto que tiene, y recién ahí tocá
+              Picado para sumar ese total.
+            </p>
+            <button
+              onClick={() => {
+                marcarAvisoPicadoVisto();
+                setAvisoPicadoAbierto(false);
+                setPicadoAbierto(true);
+              }}
+              className="mt-4 w-full rounded-lg bg-brand py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
 
       {verificandoDatos && !completando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-strong/50 p-6">
