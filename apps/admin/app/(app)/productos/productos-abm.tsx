@@ -296,6 +296,8 @@ const COLUMNAS_FIJAS: { id: string; label: string }[] = [
   { id: "principioActivo", label: "Principio activo" },
   { id: "categoria", label: "Categoría" },
   { id: "fabricante", label: "Fabricante" },
+  { id: "precio", label: "Precio" },
+  { id: "costo", label: "Costo" },
   { id: "stock", label: "Stock" },
   { id: "disponibleEn", label: "Disponible en" },
   { id: "sucursal", label: "Sucursal (vencimiento)" },
@@ -359,6 +361,15 @@ export function ProductosAbm({
   // la empresa (ver el fetch). El desglose por sucursal (antes acá, con su
   // propio "Corregir") vive ahora en /ajustes-stock.
   const [stockPorProducto, setStockPorProducto] = useState<Map<string, StockDesglose>>(new Map());
+  // Precio/costo de la lista: hasta acá esta pantalla nunca los mostraba
+  // como columna ("costo de la consulta", docs/decisiones.md) — pero para
+  // cuando se agregó esa nota la lista YA hacía 3 round-trips extra por
+  // página (lotes, disponibilidad, campos_extra) más el RPC de stock; uno
+  // más del mismo tamaño no cambia el costo real, y es literalmente lo
+  // que se pidió ver. Van opcionales (Columnas), no al default angosto.
+  const [preciosPorProducto, setPreciosPorProducto] = useState<Map<string, { precio: number | null; costo: number | null }>>(
+    new Map()
+  );
   const [sucursales, setSucursales] = useState<SucursalOpcion[]>([]);
   // Catálogo de importadoras de ESTA empresa (20260924000001). Se carga
   // una vez con las sucursales: son unas pocas filas y no tiene sentido
@@ -684,6 +695,24 @@ export function ProductosAbm({
         extraPorProducto.set(e.producto_id, (e.campos_extra as Record<string, string>) ?? {});
       }
       setCamposExtraPorProducto(extraPorProducto);
+
+      // Precio/costo: mismo criterio que campos_extra arriba, otra
+      // consulta acotada a productos_empresa de esta página. Ver el
+      // comentario de `preciosPorProducto` (useState) para por qué esto
+      // ya no es "gratis" evitarlo.
+      const { data: precioData } = idsVisibles.length
+        ? await supabase
+            .from("productos_empresa")
+            .select("producto_id, precio, costo")
+            .eq("empresa_id", empresaId)
+            .in("producto_id", idsVisibles)
+        : { data: [] };
+
+      const precioDeProducto = new Map<string, { precio: number | null; costo: number | null }>();
+      for (const pr of precioData ?? []) {
+        precioDeProducto.set(pr.producto_id, { precio: pr.precio, costo: pr.costo });
+      }
+      setPreciosPorProducto(precioDeProducto);
 
       // Stock de toda la página en UNA llamada: stock_actual_lote_desglose
       // (20260920000000), la versión batch de la que usa el modal. Un RPC
@@ -1241,6 +1270,14 @@ export function ProductosAbm({
         return p.categoria ?? "—";
       case "fabricante":
         return p.fabricante ?? "—";
+      case "precio": {
+        const precio = preciosPorProducto.get(p.id)?.precio;
+        return precio != null ? `Bs ${precio.toFixed(2)}` : "—";
+      }
+      case "costo": {
+        const costo = preciosPorProducto.get(p.id)?.costo;
+        return costo != null ? `Bs ${costo.toFixed(2)}` : "—";
+      }
       case "stock": {
         // 0 es un dato REAL y hay que mostrarlo como 0: significa "no hay
         // existencia" (nunca se contó, o se vendió todo), no "no sé". El
