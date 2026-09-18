@@ -17,6 +17,7 @@ import {
   cerrarConteo,
   crearProductoYContar,
   normalizarCodigo,
+  subirFotoAltaManual,
   type NuevoProductoManual,
 } from "@farmacia/db";
 import { db, type LineaLocal, type LineaDesconocidoLocal, type MetaConteo, type ProductoLocal } from "@/lib/db";
@@ -185,8 +186,10 @@ export function PantallaConteo({
   // encontrado" — CONTEXTO.md / decisión 2026-08-14: sacar la foto Y
   // completar los datos son un solo paso, no dos (la IA no es un paso
   // obligatorio, quien cuenta carga el producto ahí mismo mirando la
-  // caja). `fotoCapturada` es solo de referencia en pantalla mientras se
-  // completa el form — no se sube ni se guarda en ningún lado.
+  // caja). `fotoCapturada` se muestra desde el Blob local mientras se
+  // completa el form y, al guardar, se sube al bucket 'altas-manuales'
+  // para el log de auditoría que lee apps/admin (20260929000000) — el
+  // operario nunca la vuelve a leer desde el servidor.
   const [cargandoProducto, setCargandoProducto] = useState(false);
   const [fotoCapturada, setFotoCapturada] = useState<Blob | null>(null);
   const [formCarga, setFormCarga] = useState({
@@ -667,6 +670,33 @@ export function PantallaConteo({
     setGuardandoProducto(true);
     setErrorCarga(null);
     try {
+      const supabase = createBrowserClient();
+
+      // La foto va al bucket ANTES de crear el producto porque el RPC
+      // necesita la ruta en el mismo payload (no hay un segundo paso
+      // donde adjuntarla). Todo el bloque es best-effort: si el upload
+      // falla —red del depósito, permiso, lo que sea— se sigue con
+      // foto_path null y el producto se crea igual. La foto es de
+      // auditoría; perderla es molesto, perder el alta es peor.
+      let fotoPath: string | null = null;
+      if (fotoCapturada) {
+        try {
+          fotoPath = await subirFotoAltaManual(supabase, {
+            empresaId,
+            conteoId: meta.conteoId,
+            codigoNorm: feedback.codigoNorm,
+            blob: fotoCapturada,
+          });
+        } catch (e) {
+          // A la consola y nada más: mostrarle un error al operario por
+          // algo que no le impide seguir solo lo confundiría. Del lado
+          // del admin, la fila del log queda con foto_path y
+          // foto_borrada_at los dos en null, que es exactamente la señal
+          // de "nunca se pudo subir".
+          console.warn("No se pudo subir la foto del alta manual:", e);
+        }
+      }
+
       const concentracion = formCarga.concentracionValor.trim()
         ? `${formCarga.concentracionValor.trim()} ${formCarga.concentracionUnidad}`
         : null;
@@ -730,9 +760,12 @@ export function PantallaConteo({
           : fraccionaSimple
             ? (formCarga.precioUnidad.trim() ? Number(formCarga.precioUnidad) : precioUnidadCalculado)
             : null,
+        // No es un dato del producto: lo guarda el log de auditoría
+        // (altas_manuales_conteo), no `productos` ni
+        // `productos_empresa`.
+        foto_path: fotoPath,
       };
 
-      const supabase = createBrowserClient();
       const resultado = await crearProductoYContar(supabase, {
         conteoId: meta.conteoId,
         codigoRaw: feedback.codigoRaw,

@@ -532,6 +532,77 @@ export interface Database {
           },
         ];
       };
+      // Log de auditoría de las altas manuales hechas desde apps/conteo
+      // (crear_producto_y_contar). Solo lectura, y solo para
+      // admin/gerente/superadmin — no hay Insert/Update posible con sesión
+      // de usuario, lo escribe el RPC y lo limpia la service_role. Ver
+      // supabase/migrations/20260929000000_log_altas_manuales_conteo.sql
+      altas_manuales_conteo: {
+        Row: {
+          id: string;
+          empresa_id: string;
+          conteo_id: string;
+          producto_id: string;
+          usuario_id: string | null;
+          /** User agent truncado, mismo criterio flojo que
+           * escaneos.dispositivo. */
+          dispositivo: string | null;
+          codigo_raw: string;
+          /** Ruta en el bucket 'altas-manuales'. null puede ser "nunca se
+           * pudo subir" o "venció y la borraron" — se distingue mirando
+           * foto_borrada_at. */
+          foto_path: string | null;
+          foto_borrada_at: string | null;
+          /** Snapshot inmutable del NuevoProductoManual recibido. NO
+           * refleja ediciones posteriores del producto. */
+          datos: Json;
+          creado_at: string;
+        };
+        Insert: {
+          id?: string;
+          empresa_id: string;
+          conteo_id: string;
+          producto_id: string;
+          usuario_id?: string | null;
+          dispositivo?: string | null;
+          codigo_raw: string;
+          foto_path?: string | null;
+          foto_borrada_at?: string | null;
+          datos: Json;
+          creado_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["altas_manuales_conteo"]["Insert"]>;
+        Relationships: [
+          {
+            foreignKeyName: "altas_manuales_conteo_empresa_id_fkey";
+            columns: ["empresa_id"];
+            isOneToOne: false;
+            referencedRelation: "empresas";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "altas_manuales_conteo_conteo_id_fkey";
+            columns: ["conteo_id"];
+            isOneToOne: false;
+            referencedRelation: "conteos";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "altas_manuales_conteo_producto_id_fkey";
+            columns: ["producto_id"];
+            isOneToOne: false;
+            referencedRelation: "productos";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "altas_manuales_conteo_usuario_id_fkey";
+            columns: ["usuario_id"];
+            isOneToOne: false;
+            referencedRelation: "perfiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       desconocidos: {
         Row: {
           id: string;

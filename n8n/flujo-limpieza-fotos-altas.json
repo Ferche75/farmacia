@@ -1,0 +1,57 @@
+{
+  "name": "Farmacia - Limpieza de fotos de altas manuales vencidas",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 3,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "cron-diario",
+      "name": "Todos los días a las 3 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0],
+      "notes": "Una corrida por día alcanza: el vencimiento es a los 7 días, así que borrar una foto unas horas más tarde no cambia nada. El horario es configurable a mano en n8n — 3 AM es simplemente la franja de menos uso de la farmacia. Si el flujo se saltea un día (n8n apagado), la corrida siguiente barre igual todo lo vencido: el endpoint consulta por fecha, no por 'lo de ayer'."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://REEMPLAZAR-POR-EL-DOMINIO-DE-APPS-ADMIN/api/mantenimiento/borrar-fotos-vencidas",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Mantenimiento-Secret", "value": "={{ $env.MANTENIMIENTO_SECRET }}" }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "llamar-endpoint",
+      "name": "Borrar fotos vencidas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notes": "DOS COSAS A CONFIGURAR A MANO ANTES DE ACTIVAR:\n1) La URL: reemplazar el host por el dominio real de apps/admin en producción (el endpoint vive en apps/admin, NO en apps/conteo, a diferencia del callback de la IA).\n2) El secreto: tiene que ser el MISMO valor que MANTENIMIENTO_SECRET del .env de apps/admin, o el endpoint responde 401 y no borra nada. Acá va como variable de entorno de n8n ($env.MANTENIMIENTO_SECRET) justamente para no hardcodearlo en este JSON, que se versiona — si tu instalación de n8n no expone $env, usá una credencial 'Header Auth' en vez de este headerParameter.\n\nEl endpoint devuelve { ok: true, borradas: N }. Es idempotente: borrar un objeto que ya no está en el bucket no rompe nada, así que reintentar (retryOnFail) es seguro. Si el borrado en Storage falla, el endpoint NO marca las filas como limpiadas y responde 500 — la corrida del día siguiente vuelve a intentar las mismas."
+    }
+  ],
+  "connections": {
+    "Todos los días a las 3 AM": {
+      "main": [[{ "node": "Borrar fotos vencidas", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

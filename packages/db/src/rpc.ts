@@ -618,6 +618,16 @@ export interface NuevoProductoManual {
   /** Precio de una unidad suelta. Mismas condiciones que
    * `precio_blister`. */
   precio_unidad?: number | null;
+
+  /** Ruta que devolvió subirFotoAltaManual() al subir la foto de la caja
+   * al bucket 'altas-manuales' — el RPC la copia tal cual a
+   * altas_manuales_conteo.foto_path (20260929000000).
+   *
+   * Opcional a propósito: la foto es de auditoría, no un dato del
+   * producto. Si el upload falla (la red del depósito es lo que es), el
+   * cliente manda null y el alta se hace igual — bloquearla ahí sería la
+   * fricción que este formulario vino a sacar. */
+  foto_path?: string | null;
 }
 
 /** Camino paralelo a registrar_escaneo_desconocido/resolver_desconocido:
@@ -779,6 +789,34 @@ export async function subirFotoDesconocido(
   const path = `${params.empresaId}/${params.conteoId}/${nombreArchivo}`;
 
   const { error } = await supabase.storage.from("desconocidos").upload(path, params.blob, {
+    contentType: "image/jpeg",
+    upsert: false,
+  });
+
+  if (error) throw error;
+  return path;
+}
+
+/** Foto de la caja que saca el operario al dar de alta un producto a mano
+ * desde apps/conteo. Bucket SEPARADO de 'desconocidos' porque la foto vive
+ * 7 días y después la borra el barrido de mantenimiento — ver
+ * supabase/migrations/20260929000000_log_altas_manuales_conteo.sql.
+ *
+ * Misma convención de ruta que subirFotoDesconocido
+ * (empresa_id/conteo_id/archivo.jpg): las policies de Storage del bucket
+ * 'altas-manuales' dependen de ese formato exacto, no cambiarlo sin
+ * actualizar la migración.
+ *
+ * Lo devuelto va en NuevoProductoManual.foto_path. Quien llama tiene que
+ * tolerar que esto tire: el alta del producto NO depende de la foto. */
+export async function subirFotoAltaManual(
+  supabase: SupabaseClient<Database>,
+  params: { empresaId: string; conteoId: string; codigoNorm: string; blob: Blob }
+): Promise<string> {
+  const nombreArchivo = `${params.codigoNorm}-${Date.now()}.jpg`;
+  const path = `${params.empresaId}/${params.conteoId}/${nombreArchivo}`;
+
+  const { error } = await supabase.storage.from("altas-manuales").upload(path, params.blob, {
     contentType: "image/jpeg",
     upsert: false,
   });

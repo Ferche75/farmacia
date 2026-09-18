@@ -38,6 +38,7 @@ export {
   datosCompletitudCatalogo,
   completarDatosProducto,
   subirFotoDesconocido,
+  subirFotoAltaManual,
   generarCodigoInvitacionPdv,
   ajustarStock,
   reportarEstadoDispositivo,

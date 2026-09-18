@@ -4,6 +4,7 @@ import { useState } from "react";
 import { createBrowserClient, cerrarConteo, type Rol } from "@farmacia/db";
 import { ResumenGerencial } from "./resumen-gerencial";
 import { EstadoDispositivos } from "./estado-dispositivos";
+import { LogAltasManuales } from "./log-altas-manuales";
 
 export function DetalleConteo({
   conteoId,
@@ -133,6 +134,11 @@ export function DetalleConteo({
           arreglar arriba fue exactamente tener dos chequeos de rol
           separados para lo mismo, que se fueron desincronizando. */}
       {puedeVerResumen && <EstadoDispositivos conteoId={conteoId} />}
+
+      {/* Antes del resumen gerencial a propósito: esto y "Dispositivos"
+          son las dos vistas de "qué pasó durante el conteo", el resumen es
+          el resultado. Mismo gate por el mismo motivo de arriba. */}
+      {puedeVerResumen && <LogAltasManuales conteoId={conteoId} />}
 
       {puedeVerResumen && <ResumenGerencial conteoId={conteoId} nombreConteo={nombre} />}
     </div>
