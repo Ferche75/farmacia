@@ -1038,7 +1038,7 @@ export function PantallaConteo({
                       }}
                       className="mt-2 rounded-full bg-brand px-3 py-1 text-[0.6875rem] font-bold uppercase tracking-wide text-white transition-opacity hover:opacity-90"
                     >
-                      + Unidades sueltas
+                      Picado
                     </button>
                   )}
                 </div>
@@ -1098,9 +1098,9 @@ export function PantallaConteo({
                       abajo son la aclaración explícita para que no haga esa
                       cuenta mal. */}
                   <p className="text-[0.6875rem] leading-snug text-soft">
-                    Contá <strong className="text-strong">solo las unidades sueltas</strong>, fuera de la caja. Las{" "}
-                    <strong className="text-strong">{feedback.linea.cantidad}</strong> de la caja ya están contadas
-                    — no las repitas acá.
+                    Picado es <strong className="text-strong">solo lo suelto</strong>, sin la caja. Ya contaste{" "}
+                    <strong className="text-strong">{feedback.linea.cantidad}</strong> de la caja, no las sumes de
+                    nuevo acá.
                   </p>
                   <div className="mt-2 flex items-center gap-2">
                     <input
