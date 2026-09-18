@@ -18,11 +18,6 @@ export const metadata: Metadata = {
   title: "Farmacia — Conteo",
   description: "Conteo físico de stock con lector de código de barras",
   appleWebApp: { capable: true, statusBarStyle: "default", title: "Conteo" },
-  // Sin esto la app nunca calificó como PWA instalable de verdad (el
-  // service worker solo, sin manifest, no alcanza) — y es lo que
-  // Bubblewrap necesita leer para armar el APK firmado (TWA), ver
-  // apps/conteo/public/manifest.webmanifest.
-  manifest: "/manifest.webmanifest",
 };
 
 export const viewport: Viewport = {
