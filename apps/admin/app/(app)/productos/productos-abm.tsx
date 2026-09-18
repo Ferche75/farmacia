@@ -10,7 +10,7 @@ import {
   type CalculadoraPreciosEmpresa,
 } from "@farmacia/db";
 import { exportarCatalogoCompleto } from "@/lib/exportar-catalogo";
-import { sugerirPrecioBlister, sugerirPrecioUnidad } from "@/lib/calculadora-precios";
+import { sugerirPrecioBlister, sugerirPrecioUnidad, nivelesParaPresentacion } from "@/lib/calculadora-precios";
 
 interface ProductoFila {
   id: string;
@@ -879,11 +879,16 @@ export function ProductosAbm({
   const precioCajaNum = form?.precio ? Number(form.precio) : null;
   const blistersPorCajaNum = form?.blistersPorCaja ? Number(form.blistersPorCaja) : null;
   const unidadesPorBlisterNum = form?.unidadesPorBlister ? Number(form.unidadesPorBlister) : null;
+  // La regla depende de LA PRESENTACIÓN de este producto puntual
+  // (comprimidos, ampollas, vial…), no es una sola global — ver
+  // nivelesParaPresentacion: específica de `form.unidad` si la empresa la
+  // configuró, si no la de default, si no ninguna sugerencia.
+  const nivelesActuales = form ? nivelesParaPresentacion(calculadoraPrecios, form.unidad) : null;
   const sugeridoBlister = fraccionaAhora
-    ? sugerirPrecioBlister(precioCajaNum, blistersPorCajaNum, calculadoraPrecios.blister)
+    ? sugerirPrecioBlister(precioCajaNum, blistersPorCajaNum, nivelesActuales)
     : null;
   const sugeridoUnidad = fraccionaAhora
-    ? sugerirPrecioUnidad(precioCajaNum, blistersPorCajaNum, unidadesPorBlisterNum, calculadoraPrecios.unidad)
+    ? sugerirPrecioUnidad(precioCajaNum, blistersPorCajaNum, unidadesPorBlisterNum, nivelesActuales)
     : null;
 
   // ── Marca: catálogo de sugerencias, no una FK ────────────────

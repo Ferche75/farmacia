@@ -156,6 +156,18 @@ export const CAMPOS_POR_PRESENTACION: Record<string, CamposPresentacion> = {
   unidades: { fraccionableSimple: true },
 };
 
+// Las 7 presentaciones fraccionables (caja/blíster-bandeja/unidad) de
+// arriba, derivadas del mapa y no copiadas a mano: si mañana se marca una
+// presentación nueva como `fraccionable: true`, esta lista la agarra sola.
+// La usa la calculadora de precios (apps/admin/lib/calculadora-precios.ts
+// + /configuracion) para ofrecer una regla POR presentación — el markup de
+// "blíster" de comprimidos no tiene por qué ser el mismo que el de
+// "bandeja" de ampollas, y antes de esto la calculadora tenía una sola
+// regla global para las 7 mezcladas.
+export const PRESENTACIONES_FRACCIONABLES = Object.keys(CAMPOS_POR_PRESENTACION).filter(
+  (p) => CAMPOS_POR_PRESENTACION[p]?.fraccionable === true
+);
+
 export function camposDePresentacion(unidad: string): CamposPresentacion {
   return CAMPOS_POR_PRESENTACION[unidad] ?? {};
 }

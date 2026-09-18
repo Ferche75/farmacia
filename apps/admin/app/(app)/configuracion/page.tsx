@@ -5,9 +5,8 @@ import {
   VENCIMIENTO_SEMAFORO_DEFAULT,
   type ConfigOperativaEmpresa,
   type CampoPersonalizado,
-  type CalculadoraPreciosEmpresa,
-  type ReglaCalculadoraPrecios,
 } from "@farmacia/db";
+import { calculadoraPreciosDesdeConfig } from "@/lib/calculadora-precios";
 import { ConfiguracionForm } from "./configuracion-form";
 import { SucursalesBodegas } from "./sucursales-bodegas";
 import { ConfigOperativa } from "./config-operativa";
@@ -90,16 +89,10 @@ export default async function ConfiguracionPage() {
     ? (configRaw.campos_personalizados as CampoPersonalizado[])
     : [];
 
-  // calculadora_precios es opcional y cada nivel es independiente — una
-  // empresa puede tener regla para blíster y ninguna para unidad. Ver
+  // calculadora_precios es opcional: regla `default` (fallback) + reglas
+  // puntuales por presentación, ambas independientes. Ver
   // actualizar_calculadora_precios_empresa (RPC) para el shape guardado.
-  const calculadoraRaw = configRaw.calculadora_precios as
-    | { blister?: ReglaCalculadoraPrecios | null; unidad?: ReglaCalculadoraPrecios | null }
-    | undefined;
-  const calculadoraPrecios: CalculadoraPreciosEmpresa = {
-    blister: calculadoraRaw?.blister ?? null,
-    unidad: calculadoraRaw?.unidad ?? null,
-  };
+  const calculadoraPrecios = calculadoraPreciosDesdeConfig(configRaw);
 
   const { data: sucursales, error: errorSucursales } = await supabase
     .from("sucursales")

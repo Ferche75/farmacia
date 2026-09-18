@@ -1034,12 +1034,7 @@ export interface Database {
         Returns: Json;
       };
       actualizar_calculadora_precios_empresa: {
-        Args: {
-          p_blister_operacion: string | null;
-          p_blister_valor: number | null;
-          p_unidad_operacion: string | null;
-          p_unidad_valor: number | null;
-        };
+        Args: { p_config: Json };
         Returns: Json;
       };
       iniciar_importacion: {

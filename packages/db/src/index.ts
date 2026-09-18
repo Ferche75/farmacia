@@ -13,6 +13,7 @@ export {
   UNIDADES_PRESENTACION,
   UNIDADES_CONCENTRACION,
   CAMPOS_POR_PRESENTACION,
+  PRESENTACIONES_FRACCIONABLES,
   camposDePresentacion,
   esUnidadPersonalizada,
 } from "./campos-producto";
@@ -66,6 +67,7 @@ export type {
   CampoPersonalizado,
   OperacionCalculadora,
   ReglaCalculadoraPrecios,
+  NivelesCalculadoraPrecios,
   CalculadoraPreciosEmpresa,
   FilaImportacion,
   FilaClasificada,

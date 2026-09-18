@@ -1,6 +1,7 @@
 import { requirePerfilAdmin } from "@/lib/dal";
 import { createServerClient } from "@farmacia/db/server";
-import { VENCIMIENTO_SEMAFORO_DEFAULT, type CalculadoraPreciosEmpresa, type ReglaCalculadoraPrecios } from "@farmacia/db";
+import { VENCIMIENTO_SEMAFORO_DEFAULT } from "@farmacia/db";
+import { calculadoraPreciosDesdeConfig } from "@/lib/calculadora-precios";
 import { ProductosAbm } from "./productos-abm";
 
 export const dynamic = "force-dynamic";
@@ -26,16 +27,10 @@ export default async function ProductosPage() {
     verdeDias: semaforoRaw?.verde_dias ?? VENCIMIENTO_SEMAFORO_DEFAULT.verdeDias,
   };
 
-  // Reglas de sugerencia de precio_blister/precio_unidad — ver
-  // /configuracion (CalculadoraPrecios) y apps/admin/lib/calculadora-precios.ts.
-  // Cada nivel es independiente y opcional (null = sin regla configurada).
-  const calculadoraRaw = configRaw.calculadora_precios as
-    | { blister?: ReglaCalculadoraPrecios | null; unidad?: ReglaCalculadoraPrecios | null }
-    | undefined;
-  const calculadoraPrecios: CalculadoraPreciosEmpresa = {
-    blister: calculadoraRaw?.blister ?? null,
-    unidad: calculadoraRaw?.unidad ?? null,
-  };
+  // Reglas de sugerencia de precio_blister/precio_unidad, por
+  // presentación — ver /configuracion (CalculadoraPrecios) y
+  // apps/admin/lib/calculadora-precios.ts.
+  const calculadoraPrecios = calculadoraPreciosDesdeConfig(configRaw);
 
   return (
     <ProductosAbm

@@ -365,24 +365,52 @@ export interface ReglaCalculadoraPrecios {
   valor: number;
 }
 
-/** Reglas de la calculadora de precios por presentación (ver
- * apps/admin/lib/calculadora-precios.ts): una por nivel, `null` cuando la
- * empresa todavía no la configuró — en ese caso el formulario de
- * productos simplemente no ofrece ninguna sugerencia para ese nivel. */
-export interface CalculadoraPreciosEmpresa {
-  blister: ReglaCalculadoraPrecios | null;
+/** Las dos reglas de un mismo "juego" — nivel intermedio (blíster de
+ * comprimidos, bandeja de ampollas/vial — el nombre de la columna sigue
+ * siendo precio_blister para las 7 presentaciones fraccionables, ver
+ * 20260918000001_fraccionamiento_marca_y_lotes_manuales.sql) y unidad
+ * suelta. Cualquiera de las dos puede ser `null` (todavía sin configurar),
+ * independiente una de la otra. */
+export interface NivelesCalculadoraPrecios {
+  nivelIntermedio: ReglaCalculadoraPrecios | null;
   unidad: ReglaCalculadoraPrecios | null;
+}
+
+/** Reglas de la calculadora de precios por presentación (ver
+ * apps/admin/lib/calculadora-precios.ts). El markup real varía por
+ * presentación —comprimidos, ampollas, vial…— así que además de una regla
+ * `porDefecto` (fallback para cualquier presentación fraccionable sin
+ * entrada propia) se puede pisar por presentación puntual en
+ * `porPresentacion`, con las claves de `PRESENTACIONES_FRACCIONABLES`
+ * (ver campos-producto.ts). Ambos pueden ser `null`/`{}` cuando la empresa
+ * todavía no configuró nada. */
+export interface CalculadoraPreciosEmpresa {
+  porDefecto: NivelesCalculadoraPrecios | null;
+  porPresentacion: Partial<Record<string, NivelesCalculadoraPrecios | null>>;
+}
+
+function nivelesAJson(niveles: NivelesCalculadoraPrecios | null | undefined): Json {
+  if (!niveles) return null;
+  return {
+    nivel_intermedio: (niveles.nivelIntermedio as unknown as Json) ?? null,
+    unidad: (niveles.unidad as unknown as Json) ?? null,
+  };
 }
 
 export async function actualizarCalculadoraPreciosEmpresa(
   supabase: SupabaseClient<Database>,
   config: CalculadoraPreciosEmpresa
 ): Promise<{ empresa_id: string }> {
+  const porPresentacion: Record<string, Json> = {};
+  for (const [presentacion, niveles] of Object.entries(config.porPresentacion)) {
+    porPresentacion[presentacion] = nivelesAJson(niveles);
+  }
+
   const { data, error } = await supabase.rpc("actualizar_calculadora_precios_empresa", {
-    p_blister_operacion: config.blister?.operacion ?? null,
-    p_blister_valor: config.blister?.valor ?? null,
-    p_unidad_operacion: config.unidad?.operacion ?? null,
-    p_unidad_valor: config.unidad?.valor ?? null,
+    p_config: {
+      default: nivelesAJson(config.porDefecto),
+      por_presentacion: porPresentacion,
+    } as unknown as Json,
   });
 
   if (error) throw error;
