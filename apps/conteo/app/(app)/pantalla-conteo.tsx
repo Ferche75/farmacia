@@ -1014,12 +1014,12 @@ export function PantallaConteo({
                   {!picadoAbierto && (
                     <button
                       onClick={() => {
-                        setPicadoValor("1");
+                        setPicadoValor("");
                         setPicadoAbierto(true);
                       }}
                       className="mt-2 rounded-full bg-brand px-3 py-1 text-[0.6875rem] font-bold uppercase tracking-wide text-white transition-opacity hover:opacity-90"
                     >
-                      Picado
+                      + Unidades sueltas
                     </button>
                   )}
                 </div>
@@ -1071,38 +1071,63 @@ export function PantallaConteo({
               </div>
 
               {picadoAbierto && (
-                <div className="mt-3 flex items-center gap-2">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={picadoValor}
-                    onChange={(e) => setPicadoValor(e.target.value.replace(/\D/g, ""))}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        confirmarPicado(feedback.linea.id);
-                      }
-                    }}
-                    autoFocus
-                    onFocus={(e) => e.target.select()}
-                    className="w-20 shrink-0 rounded-lg border border-line-light bg-surface px-3 py-2.5 text-center font-mono text-base text-strong outline-none focus:border-brand"
-                  />
-                  <button
-                    onClick={() => confirmarPicado(feedback.linea.id)}
-                    disabled={!parseInt(picadoValor, 10)}
-                    className="flex-1 rounded-lg bg-brand px-3 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                  >
-                    Sumar sueltas
-                  </button>
-                  <button
-                    onClick={() => {
-                      setPicadoAbierto(false);
-                      reenfocar();
-                    }}
-                    className="shrink-0 px-1 text-sm text-soft"
-                  >
-                    Cancelar
-                  </button>
+                <div className="mt-3 rounded-lg border border-line-light bg-surface p-2.5">
+                  {/* La confusión real (reportada por el dueño): el operario
+                      pone el TOTAL (ej. 110) en vez de solo lo suelto (10),
+                      porque las 100 de la caja ya están contadas por otro
+                      lado y no se ve. Esta línea + el cálculo en vivo de
+                      abajo son la aclaración explícita para que no haga esa
+                      cuenta mal. */}
+                  <p className="text-[0.6875rem] leading-snug text-soft">
+                    Contá <strong className="text-strong">solo las unidades sueltas</strong>, fuera de la caja. Las{" "}
+                    <strong className="text-strong">{feedback.linea.cantidad}</strong> de la caja ya están contadas
+                    — no las repitas acá.
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={picadoValor}
+                      placeholder="ej: 10"
+                      onChange={(e) => setPicadoValor(e.target.value.replace(/\D/g, ""))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          confirmarPicado(feedback.linea.id);
+                        }
+                      }}
+                      autoFocus
+                      onFocus={(e) => e.target.select()}
+                      className="w-20 shrink-0 rounded-lg border border-line-light bg-surface px-3 py-2.5 text-center font-mono text-base text-strong outline-none focus:border-brand"
+                    />
+                    <button
+                      onClick={() => confirmarPicado(feedback.linea.id)}
+                      disabled={!parseInt(picadoValor, 10)}
+                      className="flex-1 rounded-lg bg-brand px-3 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                    >
+                      Sumar sueltas
+                    </button>
+                    <button
+                      onClick={() => {
+                        setPicadoAbierto(false);
+                        reenfocar();
+                      }}
+                      className="shrink-0 px-1 text-sm text-soft"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                  {/* Cálculo en vivo: si tipea 110 pensando en el total, acá
+                      va a ver "100 + 110 = 210" y no "110" — la señal de que
+                      algo está mal antes de confirmar, no después. */}
+                  {parseInt(picadoValor, 10) > 0 && (
+                    <p className="mt-1.5 text-[0.6875rem] text-soft">
+                      {feedback.linea.cantidad} de caja + {parseInt(picadoValor, 10)} sueltas ={" "}
+                      <strong className="text-strong">
+                        {feedback.linea.cantidad + parseInt(picadoValor, 10)} en total
+                      </strong>
+                    </p>
+                  )}
                 </div>
               )}
             </>
