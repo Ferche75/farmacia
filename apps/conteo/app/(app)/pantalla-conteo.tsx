@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowDownUp,
   Calendar,
+  Download,
   EllipsisVertical,
   Package,
   Pencil,
@@ -157,10 +158,12 @@ export function PantallaConteo({
   meta,
   empresaId,
   onCerrarConteo,
+  onActualizarCatalogo,
 }: {
   meta: MetaConteo;
   empresaId: string;
   onCerrarConteo: () => void;
+  onActualizarCatalogo: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const fotoInputRef = useRef<HTMLInputElement>(null);
@@ -914,6 +917,22 @@ export function PantallaConteo({
             />
             {pendientes > 0 ? `${pendientes} sin sincronizar` : "Sincronizado"}
           </span>
+          {/* El catálogo local se baja UNA vez al elegir el conteo y no se
+              vuelve a tocar solo (motor-escaneo.ts busca en IndexedDB, sin
+              red) — si alguien carga un producto nuevo en /productos
+              DESPUÉS de que este dispositivo ya arrancó a contar, acá
+              sigue sin existir y el escaneo da "No encontrado" aunque el
+              producto ya esté en el sistema. Este botón resuelve eso sin
+              perder lo ya escaneado: solo refresca db.catalogo, la línea
+              del conteo actual no se toca. */}
+          <button
+            onClick={onActualizarCatalogo}
+            title="Volver a bajar el catálogo — usar si un producto nuevo no aparece"
+            className="flex items-center gap-1 rounded-full bg-surface px-2.5 py-1 text-[0.6875rem] font-medium text-strong ring-1 ring-line-light transition-colors hover:bg-surface-soft"
+          >
+            <Download size={12} aria-hidden />
+            Actualizar
+          </button>
           <button
             onClick={onCerrarConteo}
             className="flex items-center gap-1 rounded-full bg-surface px-2.5 py-1 text-[0.6875rem] font-medium text-strong ring-1 ring-line-light transition-colors hover:bg-surface-soft"

@@ -25,6 +25,14 @@ export function ConteoApp({
   const [paso, setPaso] = useState<Paso>("cargando");
   const [meta, setMeta] = useState<MetaConteo | null>(null);
   const [progreso, setProgreso] = useState<ProgresoDescarga | null>(null);
+  // Distingue el refresco manual (desde adentro del conteo, "Actualizar
+  // catálogo") de la descarga inicial: mismo paso "descargando" y misma
+  // pantalla, pero el mensaje cambia — acá NO se está bajando por primera
+  // vez, se está refrescando porque el catálogo del server cambió después
+  // de que este dispositivo bajó el suyo (el caso real que lo disparó: un
+  // producto se agregó/importó después de que el operario ya había
+  // arrancado a contar, y su copia local no lo tenía).
+  const [esActualizacion, setEsActualizacion] = useState(false);
 
   useEffect(() => {
     let cancelado = false;
@@ -65,10 +73,25 @@ export function ConteoApp({
   async function onConteoElegido(nuevoMeta: MetaConteo) {
     await db.meta.put(nuevoMeta);
     setMeta(nuevoMeta);
+    setEsActualizacion(false);
     setPaso("descargando");
     await descargarCatalogo((p) => setProgreso(p));
     const actualizado = await db.meta.get("actual");
     setMeta(actualizado ?? null);
+    setPaso("listo");
+  }
+
+  // Refresco manual desde adentro del conteo (botón "Actualizar catálogo"
+  // en pantalla-conteo.tsx): NO toca `meta`/`db.lineas` — el conteo sigue
+  // siendo el mismo, con lo ya escaneado intacto. Solo vuelve a bajar
+  // db.catalogo entero (mismo `descargarCatalogo` que la carga inicial,
+  // que ya hace `clear()` + `bulkPut`), así que un producto nuevo en el
+  // servidor pasa a estar disponible para escanear sin tener que cerrar
+  // el conteo y volver a entrar.
+  async function onActualizarCatalogo() {
+    setEsActualizacion(true);
+    setPaso("descargando");
+    await descargarCatalogo((p) => setProgreso(p));
     setPaso("listo");
   }
 
@@ -105,7 +128,9 @@ export function ConteoApp({
           />
         </div>
         <div>
-          <p className="text-base text-paper">Bajando catálogo para trabajar offline</p>
+          <p className="text-base text-paper">
+            {esActualizacion ? "Actualizando catálogo…" : "Bajando catálogo para trabajar offline"}
+          </p>
           <p className="mt-1 text-sm text-muted tabular-nums">
             {progreso ? `${progreso.descargados.toLocaleString("es-BO")} / ${progreso.total.toLocaleString("es-BO")}` : "…"}
           </p>
@@ -120,6 +145,7 @@ export function ConteoApp({
         meta={meta}
         empresaId={empresaId}
         onCerrarConteo={onCerrarConteo}
+        onActualizarCatalogo={onActualizarCatalogo}
       />
     );
   }
