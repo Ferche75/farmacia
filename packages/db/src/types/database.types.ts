@@ -553,6 +553,11 @@ export interface Database {
            * foto_borrada_at. */
           foto_path: string | null;
           foto_borrada_at: string | null;
+          /** Cuánto tardó el operario en llenar el wizard de alta manual
+           * (desde que se abre el paso 1 hasta que guarda). Lo cronometra
+           * el cliente y es best-effort: null es normal, no un error. Ver
+           * supabase/migrations/20260930000000_metricas_tiempo_conteo.sql */
+          duracion_segundos: number | null;
           /** Snapshot inmutable del NuevoProductoManual recibido. NO
            * refleja ediciones posteriores del producto. */
           datos: Json;
@@ -568,6 +573,7 @@ export interface Database {
           codigo_raw: string;
           foto_path?: string | null;
           foto_borrada_at?: string | null;
+          duracion_segundos?: number | null;
           datos: Json;
           creado_at?: string;
         };
@@ -995,6 +1001,11 @@ export interface Database {
       };
       comparar_conteo: {
         Args: { p_conteo_id: string };
+        Returns: Json;
+      };
+      // supabase/migrations/20260930000000_metricas_tiempo_conteo.sql
+      curva_ritmo_conteo: {
+        Args: { p_conteo: string };
         Returns: Json;
       };
       actualizar_datos_contacto_empresa: {

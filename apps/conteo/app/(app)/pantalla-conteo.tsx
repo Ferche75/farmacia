@@ -166,6 +166,11 @@ export function PantallaConteo({
   const fotoInputRef = useRef<HTMLInputElement>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const esperandoFotoRef = useRef<{ codigoRaw: string; codigoNorm: string } | null>(null);
+  // Cronómetro del alta manual: Date.now() del momento en que apareció el
+  // paso 1 del formulario. Va en un ref y no en estado porque nada de la
+  // pantalla depende de él — si fuera estado, cada alta dispararía un
+  // render de más para guardar un número que nadie mira hasta el guardado.
+  const inicioFormularioRef = useRef<number | null>(null);
 
   const [lineas, setLineas] = useState<LineaLocal[]>([]);
   const [lineasDesc, setLineasDesc] = useState<LineaDesconocidoLocal[]>([]);
@@ -651,6 +656,16 @@ export function PantallaConteo({
       setPresentacionesFrecuentes(obtenerPresentacionesFrecuentes());
       setBusquedaPresentacion("");
       setErrorCarga(null);
+      // El cronómetro arranca ACÁ y no antes: lo que se quiere medir es
+      // cuánto le lleva al operario LLENAR el formulario, no cuánto tardó
+      // la cámara nativa del teléfono en abrirse ni cuánto estuvo
+      // buscándole el ángulo a la caja. Ese tiempo es del aparato, no del
+      // proceso que el dueño quiere entender. Decisión explícita del
+      // usuario.
+      //
+      // No se resetea al cancelar: si el operario vuelve al formulario,
+      // pasa de nuevo por acá y lo pisa antes de que pueda guardar nada.
+      inicioFormularioRef.current = Date.now();
       setCargandoProducto(true);
     } catch (err) {
       alert(err instanceof Error ? err.message : "No se pudo procesar la foto.");
@@ -666,6 +681,17 @@ export function PantallaConteo({
     if (feedback?.tipo !== "no_encontrado" || !formCarga.nombre.trim()) return;
     // Mismo criterio que el `disabled` del botón — ver precioValido.
     if (!precioValido(formCarga.precio)) return;
+
+    // Tiempo de LLENADO del wizard: desde que apareció el paso 1 (ver
+    // inicioFormularioRef en onFotoSeleccionada) hasta que el operario
+    // apretó guardar. Se corta ACÁ, antes del upload de la foto y de la
+    // llamada al RPC: lo que se está midiendo es cuánto le lleva a una
+    // persona cargar un producto, no cuánto tarda la red del depósito en
+    // subir un JPEG. Con la medición al final, un conteo con mala señal
+    // parecería un equipo lento.
+    const duracionSegundos = inicioFormularioRef.current
+      ? Math.round((Date.now() - inicioFormularioRef.current) / 1000)
+      : null;
 
     setGuardandoProducto(true);
     setErrorCarga(null);
@@ -764,6 +790,7 @@ export function PantallaConteo({
         // (altas_manuales_conteo), no `productos` ni
         // `productos_empresa`.
         foto_path: fotoPath,
+        duracion_segundos: duracionSegundos,
       };
 
       const resultado = await crearProductoYContar(supabase, {

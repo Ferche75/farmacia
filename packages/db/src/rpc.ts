@@ -61,6 +61,12 @@ export interface ProductividadOperario {
   usuario_id: string;
   escaneos: number;
   escaneos_por_hora: number;
+  /** El rango real en que ESTE operario estuvo contando, que no es el del
+   * conteo: escaneos_por_hora divide por las horas del conteo entero, así
+   * que uno que se sumó a la mitad aparece lento sin serlo. Ver
+   * supabase/migrations/20260930000000_metricas_tiempo_conteo.sql */
+  primer_escaneo_at: string;
+  ultimo_escaneo_at: string;
 }
 
 // Fase 6 extendió esta respuesta (CREATE OR REPLACE de la misma función
@@ -70,6 +76,18 @@ export interface ProductividadOperario {
 export interface ResumenConteo {
   conteo_id: string;
   estado: string;
+  /** ISO, timestamptz crudo — la UI decide el formato (y en el resumen
+   * gerencial decide mostrar fecha Y hora). Desde 20260930000000. */
+  iniciado_at: string;
+  /** null mientras el conteo sigue abierto. Es lo que distingue "todavía
+   * en curso" de "terminó": duracion_horas SIEMPRE trae un número, y con
+   * el conteo abierto ese número es lo que va corrido hasta ahora, no un
+   * total. */
+  cerrado_at: string | null;
+  /** El mismo divisor con el que se calcularon los escaneos_por_hora de
+   * productividad_por_operario, para que los dos números cierren entre
+   * sí. Piso de 1 minuto. */
+  duracion_horas: number;
   unidades_totales: number;
   skus_distintos: number;
   valor_costo: number;
@@ -100,11 +118,26 @@ export interface ResumenConteoComparable {
   conteo_id: string;
   nombre: string;
   iniciado_at: string;
+  /** En la práctica nunca null para anterior_misma_sucursal (la query
+   * filtra por estado = 'cerrado'), pero se tipa nullable igual: es la
+   * misma columna de `conteos`, y la función usa coalesce por las dudas.
+   * Desde 20260930000000. */
+  cerrado_at: string | null;
+  /** Para comparar TIEMPOS contra el conteo actual, no solo unidades y
+   * valor. Mismo cálculo y mismo piso de 1 minuto que
+   * ResumenConteo.duracion_horas. */
+  duracion_horas: number;
   unidades_totales: number;
   valor_precio: number;
 }
 
-export interface ResumenSucursalComparable extends ResumenConteoComparable {
+/** `otras_sucursales` NO trae los campos de tiempo: el comparativo entre
+ * sucursales es de volumen (¿cuánto hay en cada una?), no de duración —
+ * comparar cuánto tardó otra sucursal con otro equipo y otro tamaño de
+ * depósito no dice nada. Por eso el Omit en vez de heredar todo: el tipo
+ * refleja lo que comparar_conteo devuelve de verdad en cada rama. */
+export interface ResumenSucursalComparable
+  extends Omit<ResumenConteoComparable, "cerrado_at" | "duracion_horas"> {
   sucursal_id: string;
   sucursal_nombre: string;
   conteo_nombre: string;
@@ -118,6 +151,28 @@ export interface ResultadoComparativo {
 export interface ResultadoCierreConteo {
   id: string;
   desconocidos_pendientes: number;
+}
+
+/** Un intervalo de la curva de ritmo. `inicio_bucket` es el timestamptz
+ * donde ARRANCA el intervalo (el ancho lo dice intervalo_minutos, no la
+ * distancia al siguiente punto: los intervalos sin ningún escaneo no
+ * vienen en el array). */
+export interface CurvaRitmoBucket {
+  inicio_bucket: string;
+  escaneos: number;
+}
+
+/** Ritmo de escaneo del conteo a lo largo del tiempo, AGREGADO de todo el
+ * equipo (una sola serie, no una por operario — decisión explícita del
+ * usuario: la pregunta es sobre el conteo, no sobre quién rinde más).
+ *
+ * `intervalo_minutos` lo elige el servidor según cuánto duró el conteo
+ * (5/10/15/30/60) para que siempre den ~10-12 puntos: hace falta para
+ * poder decir "escaneos cada N minutos" en la UI, porque el número de
+ * cada bucket no significa lo mismo en un conteo corto que en uno largo. */
+export interface CurvaRitmoConteo {
+  intervalo_minutos: number;
+  buckets: CurvaRitmoBucket[];
 }
 
 export async function buscarProducto(
@@ -178,6 +233,18 @@ export async function compararConteo(
 
   if (error) throw error;
   return data as unknown as ResultadoComparativo;
+}
+
+export async function curvaRitmoConteo(
+  supabase: SupabaseClient<Database>,
+  conteoId: string
+): Promise<CurvaRitmoConteo> {
+  const { data, error } = await supabase.rpc("curva_ritmo_conteo", {
+    p_conteo: conteoId,
+  });
+
+  if (error) throw error;
+  return data as unknown as CurvaRitmoConteo;
 }
 
 /** Valida (cuenta desconocidos pendientes), cierra y deja el conteo de
@@ -628,6 +695,19 @@ export interface NuevoProductoManual {
    * cliente manda null y el alta se hace igual — bloquearla ahí sería la
    * fricción que este formulario vino a sacar. */
   foto_path?: string | null;
+
+  /** Cuánto tardó el operario en LLENAR este formulario: desde que se
+   * abre el paso 1 del wizard (con la foto ya sacada) hasta que aprieta
+   * guardar. NO incluye el tiempo de sacar la foto con la cámara del
+   * teléfono — eso pasa antes de que el formulario exista y es tiempo del
+   * aparato, no del operario.
+   *
+   * Lo cronometra el cliente y es best-effort, igual que `foto_path`: si
+   * no llega, el RPC guarda null y el alta se hace igual. Es una métrica
+   * de supervisión que va al log
+   * (altas_manuales_conteo.duracion_segundos), no un dato del producto.
+   * Ver 20260930000000. */
+  duracion_segundos?: number | null;
 }
 
 /** Camino paralelo a registrar_escaneo_desconocido/resolver_desconocido:

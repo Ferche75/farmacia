@@ -23,9 +23,26 @@ interface AltaManual {
   codigo_raw: string;
   foto_path: string | null;
   foto_borrada_at: string | null;
+  duracion_segundos: number | null;
   datos: Record<string, unknown>;
   creado_at: string;
   perfiles: { nombre: string } | null;
+}
+
+/** "3 min 20 s". Duplicado a propósito del formatearDuracion de
+ * resumen-gerencial.tsx (que trabaja en horas y llega hasta "2 h 45
+ * min"): son dos escalas distintas —un alta manual se mide en minutos, un
+ * conteo en horas— y compartir un helper obligaría a un formateador
+ * genérico con más opciones que usos. Dos componentes, dos formatos.
+ *
+ * null es el caso normal, no un error: el cronómetro es best-effort y
+ * las altas anteriores a 20260930000000 no lo tienen. */
+function formatearSegundos(segundos: number | null): string {
+  if (segundos === null || segundos < 0) return "—";
+  if (segundos < 60) return `${segundos} s`;
+  const m = Math.floor(segundos / 60);
+  const s = segundos % 60;
+  return s === 0 ? `${m} min` : `${m} min ${s} s`;
 }
 
 // Mapa local y a propósito: hoy no hay un archivo de labels compartido
@@ -150,7 +167,7 @@ export function LogAltasManuales({ conteoId }: { conteoId: string }) {
       const { data, error: e } = await supabase
         .from("altas_manuales_conteo")
         .select(
-          "id, producto_id, usuario_id, dispositivo, codigo_raw, foto_path, foto_borrada_at, datos, creado_at, perfiles(nombre)"
+          "id, producto_id, usuario_id, dispositivo, codigo_raw, foto_path, foto_borrada_at, duracion_segundos, datos, creado_at, perfiles(nombre)"
         )
         .eq("conteo_id", conteoId)
         .order("creado_at", { ascending: false });
@@ -222,6 +239,12 @@ export function LogAltasManuales({ conteoId }: { conteoId: string }) {
                 <th className="px-4 py-2.5 font-medium">Precio</th>
                 <th className="px-4 py-2.5 font-medium">Operario</th>
                 <th className="px-4 py-2.5 font-medium">Cargado</th>
+                {/* Cuánto le llevó al operario llenar el formulario — la
+                    respuesta a "¿cuánto cuesta cargar un producto que no
+                    está en el catálogo?". No cuenta el tiempo de sacar la
+                    foto: el cronómetro arranca con el paso 1 ya en
+                    pantalla. */}
+                <th className="px-4 py-2.5 font-medium">Tiempo</th>
               </tr>
             </thead>
             <tbody>
@@ -283,6 +306,9 @@ export function LogAltasManuales({ conteoId }: { conteoId: string }) {
                     <td className="px-4 py-2.5 text-muted">{a.perfiles?.nombre ?? "—"}</td>
                     <td className="px-4 py-2.5 text-muted">
                       <span title={new Date(a.creado_at).toLocaleString("es-BO")}>{hace(a.creado_at)}</span>
+                    </td>
+                    <td className="px-4 py-2.5 font-mono text-muted">
+                      {formatearSegundos(a.duracion_segundos)}
                     </td>
                   </tr>
                 );
