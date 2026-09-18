@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.farmacia.conteo",
+      "sha256_cert_fingerprints": [
+        "30:07:22:B1:1A:CF:A1:90:35:50:FF:E0:BE:A5:74:1F:A2:29:F4:E0:D6:B7:79:E3:E7:35:F0:35:B4:39:70:00"
+      ]
+    }
+  }
+]

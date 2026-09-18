@@ -3,12 +3,14 @@
 import { useActionState } from "react";
 import { login } from "@/lib/auth-actions";
 import { MarcaConteo } from "@/components/marca-conteo";
+import { PopupDescargarApk } from "@/components/popup-descargar-apk";
 
 export default function LoginPage() {
   const [state, action, pending] = useActionState(login, undefined);
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center p-6">
+      <PopupDescargarApk />
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
           <MarcaConteo />
