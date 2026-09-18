@@ -45,6 +45,7 @@ import {
 } from "@/lib/motor-desconocidos";
 import { comprimirImagen } from "@/lib/foto";
 import { UNIDADES_PRESENTACION, UNIDADES_CONCENTRACION, camposDePresentacion } from "@/lib/campos-producto";
+import { obtenerPresentacionesFrecuentes, registrarUsoPresentacion } from "@/lib/uso-presentaciones";
 import { suscribirCambiosCatalogo } from "@/lib/descargar-catalogo";
 import {
   sincronizarPendientes,
@@ -222,6 +223,22 @@ export function PantallaConteo({
   const [pasoFormulario, setPasoFormulario] = useState<1 | 2 | 3>(1);
   const [guardandoProducto, setGuardandoProducto] = useState(false);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  // Botones rápidos de presentación del paso 1 — se recalculan cada vez que
+  // se abre el formulario (ver onFotoSeleccionada), no acá: el valor
+  // inicial es solo el placeholder de la primera vez que este componente
+  // renderiza, antes de que se haya abierto ningún alta manual. Lectura de
+  // localStorage diferida a ese momento, no al render, por las dudas de
+  // hidratación server/client.
+  const [presentacionesFrecuentes, setPresentacionesFrecuentes] = useState<string[]>([
+    "comprimidos",
+    "capsulas",
+    "jarabe",
+    "ampollas",
+  ]);
+  // Texto del buscador de "otra presentación" del paso 1 — separado de
+  // formCarga.unidad porque no es el VALOR elegido, es lo que se está
+  // tipeando para filtrar la lista completa (UNIDADES_PRESENTACION).
+  const [busquedaPresentacion, setBusquedaPresentacion] = useState("");
 
   // Qué pide el paso 2 depende de la presentación elegida en el paso 1 —
   // por eso la presentación es obligatoria para avanzar. Mismo criterio y
@@ -230,7 +247,17 @@ export function PantallaConteo({
   // Las DOS condiciones, igual que en el ABM: si alguien tilda el checkbox
   // y después vuelve al paso 1 a cambiar la presentación por una que no se
   // fracciona, el desglose deja de correr aunque el booleano siga en true.
-  const fraccionaAhora = camposPresentacion.fraccionable === true && formCarga.fraccionable;
+  //
+  // Dos MODOS de fraccionamiento, mutuamente excluyentes (ver
+  // CamposPresentacion en @farmacia/db): el completo (caja → blíster →
+  // unidad, para comprimidos/cápsulas/ampollas/etc.) y el simple (caja →
+  // unidad directo, para el cajón genérico "unidades" — jeringas y
+  // similares, que no vienen en blíster). `fraccionaAhora` es la unión de
+  // los dos: todo lo que deriva `contenido` o arma el payload del RPC no
+  // necesita distinguir cuál es, solo si HAY fraccionamiento activo.
+  const fraccionaCompleto = camposPresentacion.fraccionable === true && formCarga.fraccionable;
+  const fraccionaSimple = camposPresentacion.fraccionableSimple === true && formCarga.fraccionable;
+  const fraccionaAhora = fraccionaCompleto || fraccionaSimple;
 
   // Popup de "completar datos obligatorios": se abre cuando se escanea un
   // producto que YA está en el catálogo pero al que le falta algo que esta
@@ -613,6 +640,13 @@ export function PantallaConteo({
         precioUnidad: "",
       });
       setPasoFormulario(1);
+      // Recalculado en cada apertura, no una sola vez al montar el
+      // componente: si el uso cambió desde la última vez (se cargaron
+      // productos con otra presentación), los botones rápidos tienen que
+      // reflejarlo apenas se abre un alta nueva, no recién en el próximo
+      // refresh de página.
+      setPresentacionesFrecuentes(obtenerPresentacionesFrecuentes());
+      setBusquedaPresentacion("");
       setErrorCarga(null);
       setCargandoProducto(true);
     } catch (err) {
@@ -636,6 +670,16 @@ export function PantallaConteo({
       const concentracion = formCarga.concentracionValor.trim()
         ? `${formCarga.concentracionValor.trim()} ${formCarga.concentracionUnidad}`
         : null;
+      // "Unidades" (fraccionamiento simple, sin blíster): si no se tipeó un
+      // precio por unidad, se DERIVA dividiendo precio de caja ÷ unidades
+      // por caja — pedido explícito del usuario ("que divida"). En el modo
+      // completo (blíster) no se auto-completa nada: ahí los tres precios
+      // son independientes a propósito (ver el comentario del bloque de
+      // fraccionamiento del ABM), no hay una división "correcta" única.
+      const precioUnidadCalculado =
+        fraccionaSimple && Number(formCarga.unidadesPorBlister) > 0
+          ? Number(formCarga.precio) / Number(formCarga.unidadesPorBlister)
+          : null;
       const nuevoProducto: NuevoProductoManual = {
         nombre: formCarga.nombre.trim(),
         // Requerido por el tipo y por el RPC. El guard de arriba ya
@@ -666,12 +710,26 @@ export function PantallaConteo({
         // null y el RPC ni mira el resto.
         fraccionable: fraccionaAhora,
         unidades_por_blister: fraccionaAhora ? Number(formCarga.unidadesPorBlister) : null,
+        // En modo simple, blistersPorCaja va forzado en "1" desde que se
+        // tilda el checkbox (ver el onChange más abajo): no hay blíster,
+        // la "caja" ES el nivel de arriba.
         blisters_por_caja: fraccionaAhora ? Number(formCarga.blistersPorCaja) : null,
-        // Los dos precios sueltos sí pueden quedar vacíos con el desglose
-        // cargado (se completan después desde el panel) — igual que en el
-        // ABM, que lo avisa pero no lo bloquea.
-        precio_blister: fraccionaAhora && formCarga.precioBlister ? Number(formCarga.precioBlister) : null,
-        precio_unidad: fraccionaAhora && formCarga.precioUnidad ? Number(formCarga.precioUnidad) : null,
+        // Modo completo: los dos precios sueltos pueden quedar vacíos (se
+        // completan después desde el panel), igual que en el ABM. Modo
+        // simple: no hay campo de "precio por blíster" en el formulario —
+        // se refleja acá el mismo precio de caja del paso 1, para que
+        // productos_empresa.precio_blister no quede vacío con
+        // blisters_por_caja = 1 (confundiría a quien mire el ABM después).
+        precio_blister: fraccionaCompleto
+          ? (formCarga.precioBlister ? Number(formCarga.precioBlister) : null)
+          : fraccionaSimple
+            ? Number(formCarga.precio)
+            : null,
+        precio_unidad: fraccionaCompleto
+          ? (formCarga.precioUnidad ? Number(formCarga.precioUnidad) : null)
+          : fraccionaSimple
+            ? (formCarga.precioUnidad.trim() ? Number(formCarga.precioUnidad) : precioUnidadCalculado)
+            : null,
       };
 
       const supabase = createBrowserClient();
@@ -684,6 +742,11 @@ export function PantallaConteo({
       });
 
       if (!("duplicado" in resultado)) {
+        // Uso real, no una elección a medio tipear: acá el alta ya se
+        // confirmó contra el servidor. Alimenta los botones rápidos del
+        // paso 1 (ver lib/uso-presentaciones.ts) para la próxima vez que
+        // se abra este formulario, en este mismo dispositivo.
+        registrarUsoPresentacion(nuevoProducto.unidad);
         await agregarProductoManualAProductoLocal({
           conteoId: meta.conteoId,
           codigoNorm: feedback.codigoNorm,
@@ -1076,19 +1139,78 @@ export function PantallaConteo({
                   {/* La presentación pasó a ser obligatoria (antes iba
                       suelta al lado del contenido): de ella depende qué
                       campos tiene sentido pedir en el paso 2, así que sin
-                      elegirla el wizard no puede armar el paso siguiente. */}
-                  <select
-                    className={CAMPO}
-                    value={formCarga.unidad}
-                    onChange={(e) => setFormCarga({ ...formCarga, unidad: e.target.value })}
-                  >
-                    <option value="">Presentación… *</option>
-                    {UNIDADES_PRESENTACION.map((u) => (
-                      <option key={u} value={u}>
-                        {u}
-                      </option>
-                    ))}
-                  </select>
+                      elegirla el wizard no puede armar el paso siguiente.
+                      Ya no es un <select>: son botones rápidos con las
+                      presentaciones que MÁS se usan en este dispositivo
+                      (dinámico, ver lib/uso-presentaciones.ts) + un
+                      buscador para el resto — pedido explícito del
+                      usuario, un desplegable de ~28 opciones obligaba a
+                      leer la lista entera para algo que en la práctica
+                      son siempre las mismas 3 o 4. */}
+                  <div>
+                    <p className="mb-1.5 text-xs font-semibold text-soft">Presentación *</p>
+                    <div className="mb-2 flex flex-wrap gap-1.5">
+                      {presentacionesFrecuentes.map((u) => (
+                        <button
+                          key={u}
+                          type="button"
+                          onClick={() => {
+                            setFormCarga({ ...formCarga, unidad: u });
+                            setBusquedaPresentacion("");
+                          }}
+                          className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            formCarga.unidad === u
+                              ? "bg-brand text-white"
+                              : "bg-surface-soft text-strong ring-1 ring-line-light hover:bg-line-light"
+                          }`}
+                        >
+                          {u}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      className={CAMPO}
+                      value={busquedaPresentacion}
+                      onChange={(e) => setBusquedaPresentacion(e.target.value)}
+                      placeholder="Buscar otra presentación…"
+                    />
+                    {/* Filtra por substring, no solo por prefijo: alcanza con
+                        tipear 3 letras de cualquier parte del nombre (ej.
+                        "vas" encuentra "envase") para acotar la lista de
+                        ~28 opciones a un puñado. */}
+                    {busquedaPresentacion.trim() &&
+                      (() => {
+                        const coincidencias = UNIDADES_PRESENTACION.filter((u) =>
+                          u.includes(busquedaPresentacion.trim().toLowerCase())
+                        );
+                        return (
+                          <ul className="mt-1.5 max-h-40 overflow-auto rounded-lg border border-line-light bg-surface">
+                            {coincidencias.length === 0 && (
+                              <li className="px-3 py-2 text-sm text-soft">Sin coincidencias</li>
+                            )}
+                            {coincidencias.map((u) => (
+                              <li key={u}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setFormCarga({ ...formCarga, unidad: u });
+                                    setBusquedaPresentacion("");
+                                  }}
+                                  className="block w-full px-3 py-2 text-left text-sm text-strong hover:bg-surface-soft"
+                                >
+                                  {u}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        );
+                      })()}
+                    {formCarga.unidad && (
+                      <p className="mt-1.5 text-xs text-soft">
+                        Elegida: <strong className="text-strong">{formCarga.unidad}</strong>
+                      </p>
+                    )}
+                  </div>
                 </>
               )}
 
@@ -1202,6 +1324,74 @@ export function PantallaConteo({
                             Los tres precios son independientes: llevar un blíster suelto suele salir más caro por
                             unidad que llevarse la caja entera. No se calculan dividiendo el precio de la caja.
                           </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Fraccionamiento SIMPLE (caja → unidad, sin blíster) —
+                      el cajón genérico "unidades", donde caen productos
+                      como jeringas: la caja trae N y se vende suelta o
+                      entera, pero no hay ninguna sub-unidad física entre
+                      medio. Ver fraccionableSimple en @farmacia/db. */}
+                  {camposPresentacion.fraccionableSimple && (
+                    <div className="rounded-lg border border-line-light bg-surface p-3">
+                      <label className="flex items-center gap-2 text-sm text-strong">
+                        <input
+                          type="checkbox"
+                          className="accent-brand"
+                          checked={formCarga.fraccionable}
+                          onChange={(e) =>
+                            setFormCarga({
+                              ...formCarga,
+                              fraccionable: e.target.checked,
+                              // Sin blíster: la caja ES el nivel de arriba.
+                              // Forzarlo acá evita mostrarle al operario un
+                              // concepto ("blíster") que no existe para esta
+                              // presentación.
+                              blistersPorCaja: e.target.checked ? "1" : "",
+                            })
+                          }
+                        />
+                        Se vende también por unidad suelta (no solo la caja completa)
+                      </label>
+
+                      {formCarga.fraccionable && (
+                        <div className="mt-3 space-y-2">
+                          <input
+                            className={CAMPO}
+                            type="text"
+                            inputMode="numeric"
+                            value={formCarga.unidadesPorBlister}
+                            onChange={(e) =>
+                              setFormCarga({ ...formCarga, unidadesPorBlister: e.target.value.replace(/\D/g, "") })
+                            }
+                            placeholder="Unidades por caja *"
+                          />
+                          <input
+                            className={CAMPO}
+                            type="text"
+                            inputMode="decimal"
+                            value={formCarga.precioUnidad}
+                            onChange={(e) =>
+                              setFormCarga({ ...formCarga, precioUnidad: limpiarNumeroDecimal(e.target.value) })
+                            }
+                            placeholder="Precio por unidad (opcional)"
+                          />
+                          {/* "Que divida" — pedido explícito del usuario: sin
+                              precio por unidad tipeado, se calcula solo
+                              (precio de caja ÷ unidades por caja) y ASÍ se
+                              guarda si no se lo cambia — mismo cálculo que
+                              hace guardarProductoCargado al armar el alta. */}
+                          {!formCarga.precioUnidad.trim() &&
+                            precioValido(formCarga.precio) &&
+                            Number(formCarga.unidadesPorBlister) > 0 && (
+                              <p className="text-[0.6875rem] text-soft">
+                                Sin precio por unidad, se calcula solo: Bs{" "}
+                                {(Number(formCarga.precio) / Number(formCarga.unidadesPorBlister)).toFixed(2)}{" "}
+                                (precio de caja ÷ unidades por caja).
+                              </p>
+                            )}
                         </div>
                       )}
                     </div>
